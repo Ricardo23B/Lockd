@@ -1,0 +1,11 @@
+# Python deps for Lockd
+# install system GTK/Adwaita bindings separately:
+#   sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
+
+pyyaml>=5.4
+
+# colorama  # maybe unused — was needed for old cli before we rolled our own ANSI
+# PyQt5     # leftover from early prototype, never made it in
+
+# polkit/pkexec: system package, not pip
+#   sudo apt install policykit-1
