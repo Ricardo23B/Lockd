@@ -1,0 +1,328 @@
+# =============================================================================
+# Lockd v0.4 — Catálogo maestro de módulos de seguridad
+# =============================================================================
+#
+# Campos de cada módulo:
+#   id              identificador único (carpeta en modules/)
+#   name            nombre legible en GUI/CLI
+#   description     explicación para el usuario final
+#   category        network|filesystem|kernel|services|access_control|system_hardening
+#   security_level  basic|advanced|expert|paranoid
+#   risk_level      low|medium|high
+#   requires_reboot ¿necesita reiniciar para aplicar?
+#   impact          consecuencia visible para el usuario
+#   server_safe     ¿seguro activar en servidores de producción?
+#   desktop_safe    ¿seguro activar en escritorios de usuario?
+#   enable_script   ruta relativa al script de activación
+#   disable_script  ruta relativa al script de desactivación
+#   check_script    ruta relativa al script de verificación de estado
+#   dependencies    paquetes apt necesarios para que funcione
+#   supported_distros distros compatibles
+#
+# Para añadir un módulo: crear carpeta, scripts y añadir entrada aquí.
+# Ver docs/CREATING_A_MODULE.md
+# =============================================================================
+
+modules:
+
+  # ── NETWORK ──────────────────────────────────────────────────────────────
+
+  - id: enable_firewall
+    name: "Activar Cortafuegos (UFW)"
+    description: >
+      Activa UFW con política segura por defecto: bloquea todo el tráfico
+      entrante salvo SSH con rate-limiting. Permite todo el tráfico saliente.
+      Primera línea de defensa en cualquier sistema conectado a red.
+    category: network
+    security_level: basic
+    risk_level: low
+    requires_reboot: false
+    impact: "Bloquea acceso remoto no autorizado. SSH con rate-limit anti-brute-force."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "enable_firewall/enable.sh"
+    disable_script: "enable_firewall/disable.sh"
+    check_script: "enable_firewall/check.sh"
+    dependencies: [ufw]
+    supported_distros: [debian, ubuntu]
+
+  - id: install_fail2ban
+    name: "Instalar y Configurar Fail2ban"
+    description: >
+      Instala fail2ban y lo configura para banear automáticamente IPs que
+      realizan múltiples intentos de autenticación SSH fallidos. Complementa
+      el cortafuegos con detección activa de ataques de fuerza bruta.
+    category: network
+    security_level: basic
+    risk_level: low
+    requires_reboot: false
+    impact: "IPs con múltiples fallos de autenticación quedan baneadas automáticamente."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "install_fail2ban/enable.sh"
+    disable_script: "install_fail2ban/disable.sh"
+    check_script: "install_fail2ban/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  # ── FILESYSTEM ───────────────────────────────────────────────────────────
+
+  - id: secure_tmp_partition
+    name: "Proteger /tmp (noexec, nosuid, nodev)"
+    description: >
+      Monta /tmp con flags noexec, nosuid y nodev. Impide ejecutar programas
+      directamente desde /tmp, vector clásico en exploits y malware. Las
+      aplicaciones pueden seguir usando /tmp para almacenamiento temporal.
+    category: filesystem
+    security_level: advanced
+    risk_level: low
+    requires_reboot: false
+    impact: "Scripts o instaladores que ejecuten binarios desde /tmp fallarán."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "secure_tmp_partition/enable.sh"
+    disable_script: "secure_tmp_partition/disable.sh"
+    check_script: "secure_tmp_partition/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  - id: secure_shared_memory
+    name: "Proteger /dev/shm (noexec, nosuid)"
+    description: >
+      Monta /dev/shm (memoria compartida) con noexec y nosuid. La memoria
+      compartida es frecuentemente aprovechada en exploits de escalada de
+      privilegios locales. Seguro para la mayoría de aplicaciones modernas.
+    category: filesystem
+    security_level: paranoid
+    risk_level: low
+    requires_reboot: false
+    impact: "Algunas aplicaciones de base de datos o IPC avanzado pueden requerir ajuste."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "secure_shared_memory/enable.sh"
+    disable_script: "secure_shared_memory/disable.sh"
+    check_script: "secure_shared_memory/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  # ── ACCESS CONTROL ───────────────────────────────────────────────────────
+
+  - id: hide_procs_nonroot
+    name: "Ocultar Procesos de Otros Usuarios"
+    description: >
+      Monta /proc con hidepid=invisible. Cada usuario solo puede ver sus
+      propios procesos. Crea el grupo 'procview' cuyos miembros mantienen
+      visibilidad total (útil para herramientas de monitoreo).
+    category: access_control
+    security_level: advanced
+    risk_level: low
+    requires_reboot: false
+    impact: "Herramientas de monitoreo deben pertenecer al grupo 'procview'."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "hide_procs_nonroot/enable.sh"
+    disable_script: "hide_procs_nonroot/disable.sh"
+    check_script: "hide_procs_nonroot/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  - id: disable_usb_storage
+    name: "Bloquear Almacenamiento USB"
+    description: >
+      Añade usb-storage y uas a la lista negra del kernel. Previene fuga
+      de datos y ataques BadUSB. Imprescindible en servidores sin acceso
+      físico controlado o equipos en entornos de alta seguridad.
+    category: access_control
+    security_level: paranoid
+    risk_level: medium
+    requires_reboot: false
+    impact: "Dispositivos USB de almacenamiento conectados serán desconectados."
+    server_safe: true
+    desktop_safe: false
+    enable_script: "disable_usb_storage/enable.sh"
+    disable_script: "disable_usb_storage/disable.sh"
+    check_script: "disable_usb_storage/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  # ── SYSTEM HARDENING ─────────────────────────────────────────────────────
+
+  - id: automatic_security_updates
+    name: "Actualizaciones Automáticas de Seguridad"
+    description: >
+      Instala y configura unattended-upgrades para aplicar actualizaciones
+      de seguridad automáticamente cada día. Reduce la ventana de exposición
+      a vulnerabilidades conocidas sin intervención manual.
+    category: system_hardening
+    security_level: basic
+    risk_level: low
+    requires_reboot: false
+    impact: "El sistema puede programar reinicios automáticos nocturnos."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "automatic_security_updates/enable.sh"
+    disable_script: "automatic_security_updates/disable.sh"
+    check_script: "automatic_security_updates/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  - id: disable_core_dumps
+    name: "Deshabilitar Core Dumps"
+    description: >
+      Deshabilita los volcados de memoria (core dumps) del sistema. Los
+      core dumps pueden exponer datos sensibles en memoria como contraseñas,
+      claves criptográficas o tokens de sesión en archivos legibles en disco.
+    category: system_hardening
+    security_level: advanced
+    risk_level: low
+    requires_reboot: false
+    impact: "No habrá core dumps disponibles para depuración de crashes."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "disable_core_dumps/apply.sh"
+    disable_script: "disable_core_dumps/remove.sh"
+    check_script: "disable_core_dumps/check_state.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  - id: disable_ctrl_alt_del
+    name: "Deshabilitar Ctrl+Alt+Del"
+    description: >
+      Enmascara el target de systemd ctrl-alt-del.target, impidiendo reinicios
+      accidentales o maliciosos mediante la combinación de teclado. Esencial
+      en servidores, kioscos y equipos con acceso físico no controlado.
+    category: system_hardening
+    security_level: advanced
+    risk_level: low
+    requires_reboot: false
+    impact: "Ctrl+Alt+Del no provocará ningún reinicio del sistema."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "disable_ctrl_alt_del/run.sh"
+    disable_script: "disable_ctrl_alt_del/undo.sh"
+    check_script: "disable_ctrl_alt_del/status.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  # ── KERNEL ───────────────────────────────────────────────────────────────
+
+  - id: kernel_sysctl_hardening
+    name: "Hardening del Kernel (sysctl)"
+    description: >
+      Aplica parámetros de seguridad al kernel via sysctl.d: deshabilita
+      IP forwarding innecesario, activa SYN cookies, rechaza ICMP redirects,
+      habilita protección contra spoofing con rp_filter y otras medidas
+      que reducen la superficie de ataque a nivel de red y kernel.
+    category: kernel
+    security_level: advanced
+    risk_level: medium
+    requires_reboot: false
+    impact: "Puede afectar enrutamiento en equipos con múltiples interfaces de red."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "kernel_sysctl_hardening/enable.sh"
+    disable_script: "kernel_sysctl_hardening/rollback.sh"
+    check_script: "kernel_sysctl_hardening/verify.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  - id: kernel_module_blacklist
+    name: "Lista Negra de Módulos del Kernel"
+    description: >
+      Bloquea módulos del kernel innecesarios con historial de CVEs:
+      sistemas de archivos poco usados (cramfs, freevxfs, jffs2, hfs,
+      hfsplus, udf) y protocolos de red raros (dccp, sctp, rds, tipc).
+      Requiere reinicio para que la lista negra surta efecto completo.
+    category: kernel
+    security_level: expert
+    risk_level: medium
+    requires_reboot: true
+    impact: "Esos sistemas de archivos y protocolos de red dejarán de estar disponibles."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "kernel_module_blacklist/enable.sh"
+    disable_script: "kernel_module_blacklist/disable.sh"
+    check_script: "kernel_module_blacklist/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  # ── SERVICES ─────────────────────────────────────────────────────────────
+
+  - id: hardened_ssh_config
+    name: "Endurecer Servidor SSH"
+    description: >
+      Aplica configuración estricta al servidor SSH mediante drop-in en
+      sshd_config.d/: deshabilita auth por contraseña, prohíbe login root,
+      limita intentos de autenticación, desactiva X11 forwarding y usa
+      solo algoritmos criptográficos modernos y seguros.
+    category: services
+    security_level: advanced
+    risk_level: high
+    requires_reboot: false
+    impact: "Sin clave SSH configurada previamente, perderás acceso remoto al sistema."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "hardened_ssh_config/enable.sh"
+    disable_script: "hardened_ssh_config/disable.sh"
+    check_script: "hardened_ssh_config/check.sh"
+    dependencies: [openssh-server]
+    supported_distros: [debian, ubuntu]
+
+  # ── ADVANCED HARDENING ───────────────────────────────────────────────────
+
+  - id: apparmor_enforce_mode
+    name: "AppArmor en Modo Enforce"
+    description: >
+      Instala AppArmor si no está presente, habilita el servicio y pone
+      todos los perfiles disponibles en modo enforce (bloqueo activo).
+      Proporciona confinamiento de aplicaciones a nivel de sistema operativo.
+    category: access_control
+    security_level: expert
+    risk_level: medium
+    requires_reboot: false
+    impact: "Aplicaciones con perfil AppArmor quedan limitadas en sus accesos al sistema."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "apparmor_enforce_mode/enable.sh"
+    disable_script: "apparmor_enforce_mode/disable.sh"
+    check_script: "apparmor_enforce_mode/check.sh"
+    dependencies: [apparmor]
+    supported_distros: [debian, ubuntu]
+
+  - id: restrict_compilers
+    name: "Restringir Compiladores del Sistema"
+    description: >
+      Restringe el acceso a gcc, cc, g++ y make al grupo 'compiler' del
+      sistema. Dificulta que un atacante con acceso de usuario normal
+      compile exploits directamente en el servidor comprometido.
+    category: system_hardening
+    security_level: expert
+    risk_level: medium
+    requires_reboot: false
+    impact: "Los usuarios sin el grupo 'compiler' no podrán compilar código."
+    server_safe: true
+    desktop_safe: false
+    enable_script: "restrict_compilers/enable.sh"
+    disable_script: "restrict_compilers/disable.sh"
+    check_script: "restrict_compilers/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
+
+  - id: restrict_suid_binaries
+    name: "Auditar y Restringir Binarios SUID"
+    description: >
+      Escanea el sistema en busca de binarios con bit SUID activo y elimina
+      ese bit de los que no están en la lista de binarios SUID seguros y
+      necesarios. Reduce la superficie de ataque para escalada de privilegios.
+    category: access_control
+    security_level: expert
+    risk_level: high
+    requires_reboot: false
+    impact: "Binarios SUID no esenciales perderán ese privilegio. Guarda lista de cambios."
+    server_safe: true
+    desktop_safe: false
+    enable_script: "restrict_suid_binaries/enable.sh"
+    disable_script: "restrict_suid_binaries/disable.sh"
+    check_script: "restrict_suid_binaries/check.sh"
+    dependencies: []
+    supported_distros: [debian, ubuntu]
