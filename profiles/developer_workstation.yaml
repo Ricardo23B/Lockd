@@ -1,0 +1,18 @@
+id: developer_workstation
+name: "Developer Workstation"
+description: >
+  Seguridad razonable para entornos de desarrollo. SSH endurecido
+  con clave, cortafuegos activo, hardening del kernel y protección
+  de /tmp. Compatible con flujos de trabajo de desarrollo.
+icon: applications-development-symbolic
+compatible: [desktop]
+modules:
+  - enable_firewall
+  - automatic_security_updates
+  - install_fail2ban
+  - hardened_ssh_config
+  - secure_tmp_partition
+  - hide_procs_nonroot
+  - kernel_sysctl_hardening
+  - disable_core_dumps
+  - disable_ctrl_alt_del
