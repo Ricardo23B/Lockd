@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Lockd
+GenericName=Security Hardening Tool
+Comment=Audita y endurece la seguridad de tu sistema Linux
+Exec=python3 /usr/share/lockd/lockd.py
+Icon=security-high
+Terminal=false
+Categories=System;Security;Settings;
+Keywords=security;hardening;firewall;ssh;privacy;kernel;
+StartupWMClass=lockd
+X-GNOME-UsesNotifications=true
