@@ -1,251 +1,173 @@
 """
-app/controller.py — controlador central de lockd
+gui/profile_view.py — pestaña Perfiles (v0.4)
 
-Conecta el engine con las interfaces (GUI y CLI).
-Centraliza la lógica de negocio: aplicar perfiles, aplicar niveles,
-habilitar/deshabilitar módulos, ejecutar scan.
-
-Tanto la GUI como la CLI delegan en este controlador.
+Cards por perfil con descripción, módulos incluidos y botón Aplicar.
+Feedback inline en el botón y barra de progreso durante la aplicación.
 """
 import logging
-from pathlib import Path
-from typing import Callable, List, Optional
+import threading
+from typing import TYPE_CHECKING, List
 
-from src.engine.module_loader import ModuleDefinition, ModuleLoader
-from src.engine.executor import Executor, ExecResult
-from src.engine.scanner import SecurityReport, run_scan
-from src.engine.state_runtime import StateManager
-from src.engine.profile_ctx import ProfileManager, Profile
-from src.engine.level_manager import LevelManager
-from src.engine.distro_detector import detect as detect_distro
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk, GLib
 
-log = logging.getLogger("lockd.ctrl")
+if TYPE_CHECKING:
+    from src.app.controller import Controller
+from src.engine.executor import ExecResult
 
-APP_DIR      = Path(__file__).resolve().parent.parent.parent
-MODULES_DIR  = APP_DIR / "modules"
-PROFILES_DIR = APP_DIR / "profiles"
-STATE_FILE   = Path.home() / ".config" / "lockd" / "state.json"
+log = logging.getLogger("lockd.gui.profiles")
+
+_PROFILE_ICON = {
+    "home_desktop":          "🏠",
+    "developer_workstation": "💻",
+    "server":                "🖥️",
+    "paranoid":              "🔒",
+    "lab_test":              "🧪",
+}
 
 
-class Controller:
-    """
-    API pública de lockd.
+class ProfileView(Gtk.Box):
+    def __init__(self, controller: "Controller"):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        self._ctrl    = controller
+        self._results: List[ExecResult] = []
+        self._pulse_timer = None
+        self._build()
 
-    Ambas interfaces (GUI y CLI) usan este mismo controlador para
-    garantizar comportamiento consistente y no duplicar lógica.
-    """
+    def _build(self):
+        scroll = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True
+        )
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        outer.set_margin_top(20)
+        outer.set_margin_bottom(20)
+        outer.set_margin_start(24)
+        outer.set_margin_end(24)
 
-    def __init__(
-        self,
-        modules_dir:  Path = MODULES_DIR,
-        profiles_dir: Path = PROFILES_DIR,
-        state_file:   Path = STATE_FILE,
-        dry_run:      bool = False,
-    ):
-        self.dry_run = dry_run
+        desc = Gtk.Label(
+            label="Aplicá un perfil para configurar el sistema de seguridad en un solo paso.",
+            wrap=True, halign=Gtk.Align.START,
+        )
+        desc.add_css_class("dim-label")
+        desc.set_margin_bottom(16)
+        outer.append(desc)
 
-        # engine
-        loader       = ModuleLoader(modules_dir / "modules.yaml", modules_dir)
-        self.modules: List[ModuleDefinition] = loader.load()
-        self._mod_map = {m.id: m for m in self.modules}
+        grp = Adw.PreferencesGroup()
+        for profile in self._ctrl.profiles.all():
+            grp.add(self._make_row(profile))
+        outer.append(grp)
 
-        self.state    = StateManager(state_file)
-        self.executor = Executor(self.state, dry_run=dry_run)
-        self.profiles = ProfileManager(profiles_dir)
-        self.levels   = LevelManager(self.modules)
+        self._progress = Gtk.ProgressBar(visible=False)
+        self._progress.set_margin_top(12)
+        outer.append(self._progress)
 
-        distro = detect_distro()
-        log.info(
-            f"Controller listo — {len(self.modules)} módulos, "
-            f"distro={distro['pretty']}, dry_run={dry_run}"
+        self._status_lbl = Gtk.Label(label="", halign=Gtk.Align.START)
+        self._status_lbl.add_css_class("caption")
+        self._status_lbl.add_css_class("dim-label")
+        outer.append(self._status_lbl)
+
+        scroll.set_child(outer)
+        self.append(scroll)
+
+    def _make_row(self, profile) -> Adw.ActionRow:
+        emoji = _PROFILE_ICON.get(profile.id, "🛡️")
+        n_mods = len(profile.modules)
+        row = Adw.ActionRow(
+            title    = f"{emoji} {profile.name}",
+            subtitle = f"{getattr(profile, 'description', '')}  ·  {n_mods} módulos",
         )
 
-    # ── Módulos individuales ──────────────────────────────────────────────
+        # chips de los primeros módulos
+        chips = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
+        for mid in profile.modules[:3]:
+            mod  = self._ctrl.get_module(mid)
+            chip = Gtk.Label(label=mod.name if mod else mid)
+            chip.add_css_class("caption")
+            chip.add_css_class("tag")
+            chips.append(chip)
+        if n_mods > 3:
+            more = Gtk.Label(label=f"+{n_mods - 3}")
+            more.add_css_class("caption")
+            more.add_css_class("dim-label")
+            chips.append(more)
+        row.add_suffix(chips)
 
-    def get_module(self, module_id: str) -> Optional[ModuleDefinition]:
-        return self._mod_map.get(module_id)
+        btn = Gtk.Button(label="Aplicar", valign=Gtk.Align.CENTER)
+        btn.add_css_class("suggested-action")
+        btn.connect("clicked", lambda _, p=profile, b=btn: self._confirm(p, b))
+        row.add_suffix(btn)
+        return row
 
-    def module_state(self, module_id: str) -> str:
-        return self.state.get(module_id)
+    def _confirm(self, profile, btn: Gtk.Button):
+        mods = ", ".join(profile.modules[:5])
+        if len(profile.modules) > 5:
+            mods += f" y {len(profile.modules) - 5} más"
+        d = Adw.MessageDialog.new(
+            self.get_root(),
+            f"Aplicar perfil '{profile.name}'",
+            f"Se activarán {len(profile.modules)} módulos y se desactivarán los demás.\n\nMódulos: {mods}",
+        )
+        d.add_response("cancel", "Cancelar")
+        d.add_response("apply",  "Aplicar perfil")
+        d.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        d.set_default_response("apply")
+        d.connect("response", lambda _, r, p=profile, b=btn:
+                  self._do_apply(p, b) if r == "apply" else None)
+        d.present()
 
-    def is_enabled(self, module_id: str) -> bool:
-        return self.state.is_enabled(module_id)
+    def _do_apply(self, profile, btn: Gtk.Button):
+        btn.set_sensitive(False)
+        btn.set_label("Aplicando…")
+        self._results = []
+        self._progress.set_visible(True)
+        self._progress.set_fraction(0.0)
+        self._start_pulse()
 
-    def enable(
-        self,
-        module_id: str,
-        on_complete: Optional[Callable[[ExecResult], None]] = None,
-    ) -> Optional[ExecResult]:
-        """
-        Activa un módulo.
-        - on_complete=None  → modo síncrono (CLI): bloquea y devuelve ExecResult
-        - on_complete=fn    → modo asíncrono (GUI): llama fn al terminar
-        """
-        if not self._is_valid_id(module_id):
-            log.error(f"ID inválido: '{module_id}'")
-            return None
-        mod = self._get_or_fail(module_id)
-        if not mod:
-            return None
-        self._warn_if_desktop_unsafe(mod)
-        return self._run(mod, enable=True, on_complete=on_complete)
+        def on_step(r: ExecResult, n: int, total: int):
+            GLib.idle_add(self._update_step, r, n, total)
 
-    def disable(
-        self,
-        module_id: str,
-        on_complete: Optional[Callable[[ExecResult], None]] = None,
-    ) -> Optional[ExecResult]:
-        mod = self._get_or_fail(module_id)
-        if not mod:
-            return None
-        return self._run(mod, enable=False, on_complete=on_complete)
+        def on_done(results: List[ExecResult]):
+            GLib.idle_add(self._done, btn)
 
-    def simulate(self, module_id: str, enable: bool = True) -> ExecResult:
-        """Ejecuta en modo dry-run independientemente de la configuración global."""
-        mod = self._get_or_fail(module_id)
-        if not mod:
-            raise ValueError(f"Módulo no encontrado: {module_id}")
-        script = mod.enable_script if enable else mod.disable_script
-        # guardar y restaurar dry_run temporal
-        orig = self.executor.dry_run
-        self.executor.dry_run = True
-        result = self.executor.run(module_id, script, enable)
-        self.executor.dry_run = orig
-        return result
+        self._ctrl.apply_profile_async(
+            profile.id,
+            on_step=on_step,
+            on_done=on_done,
+        )
 
-    # ── Perfiles ─────────────────────────────────────────────────────────
+    def _update_step(self, r: ExecResult, n: int, total: int):
+        self._results.append(r)
+        self._progress.set_fraction(n / total)
+        icon = "✓" if (r.ok or r.dry_run) else "✗"
+        self._status_lbl.set_text(f"{icon} [{n}/{total}] {r.module_id}")
+        return GLib.SOURCE_REMOVE
 
-    def apply_profile(
-        self,
-        profile_id: str,
-        on_step: Optional[Callable[[ExecResult, int, int], None]] = None,
-    ) -> List[ExecResult]:
-        """
-        Aplica un perfil completo de forma síncrona.
-        Activa los módulos incluidos, desactiva los que no estén.
-        on_step(result, step_n, total) — callback de progreso opcional.
-        """
-        profile = self.profiles.by_id(profile_id)
-        if not profile:
-            raise ValueError(f"Perfil no encontrado: {profile_id}")
+    def _done(self, btn: Gtk.Button):
+        self._stop_pulse()
+        self._progress.set_visible(False)
+        ok  = sum(1 for r in self._results if r.ok or r.dry_run)
+        err = len(self._results) - ok
+        btn.set_sensitive(True)
+        if err == 0:
+            btn.set_label("✓ Aplicado")
+        else:
+            btn.set_label(f"✗ {err} error(es)")
+        self._status_lbl.set_text(
+            f"Perfil aplicado: {ok} OK, {err} errores de {len(self._results)} módulos."
+        )
+        return GLib.SOURCE_REMOVE
 
-        log.info(f"Aplicando perfil '{profile.name}' ({len(profile.modules)} módulos)")
-        queue   = self._build_profile_queue(profile)
-        results = []
+    def _start_pulse(self):
+        def pulse():
+            if self._pulse_timer is None:
+                return GLib.SOURCE_REMOVE
+            self._progress.pulse()
+            return GLib.SOURCE_CONTINUE
+        self._pulse_timer = GLib.timeout_add(200, pulse)
 
-        for i, (mid, script, enable) in enumerate(queue):
-            r = self.executor.run(mid, script, enable)
-            results.append(r)
-            if on_step:
-                on_step(r, i + 1, len(queue))
-            if r.cancelled:
-                log.warning("Perfil cancelado por el usuario.")
-                break
-        return results
-
-    def apply_profile_async(
-        self,
-        profile_id: str,
-        on_step: Callable[[ExecResult, int, int], None],
-        on_done: Callable[[List[ExecResult]], None],
-    ) -> None:
-        """Aplica un perfil en hilo daemon, ideal para GUI."""
-        import threading
-        profile = self.profiles.by_id(profile_id)
-        if not profile:
-            raise ValueError(f"Perfil no encontrado: {profile_id}")
-
-        queue = self._build_profile_queue(profile)
-        results: List[ExecResult] = []
-        total = len(queue)
-
-        def _run():
-            for i, (mid, script, enable) in enumerate(queue):
-                r = self.executor.run(mid, script, enable)
-                results.append(r)
-                on_step(r, i + 1, total)
-                if r.cancelled:
-                    break
-            on_done(results)
-
-        threading.Thread(target=_run, daemon=True, name="lt-profile").start()
-
-    # ── Niveles de seguridad ──────────────────────────────────────────────
-
-    def apply_level(
-        self,
-        level_id: str,
-        on_step: Optional[Callable[[ExecResult, int, int], None]] = None,
-    ) -> List[ExecResult]:
-        """Aplica todos los módulos hasta el nivel dado (acumulativo)."""
-        mod_ids = self.levels.modules_for_level(level_id)
-        if not mod_ids:
-            raise ValueError(f"Nivel no encontrado: {level_id}")
-
-        log.info(f"Aplicando nivel '{level_id}' ({len(mod_ids)} módulos)")
-        results = []
-        for i, mid in enumerate(mod_ids):
-            mod = self._mod_map.get(mid)
-            if not mod or not mod.enable_script:
-                continue
-            r = self.executor.run(mid, mod.enable_script, enable=True)
-            results.append(r)
-            if on_step:
-                on_step(r, i + 1, len(mod_ids))
-            if r.cancelled:
-                break
-        return results
-
-    # ── Scan ─────────────────────────────────────────────────────────────
-
-    def scan(self) -> SecurityReport:
-        """Ejecuta el Security Scan y devuelve el reporte."""
-        log.info("Iniciando Security Scan...")
-        return run_scan()
-
-    # ── Info ─────────────────────────────────────────────────────────────
-
-    def modules_by_category(self) -> dict[str, List[ModuleDefinition]]:
-        cats: dict[str, List[ModuleDefinition]] = {}
-        for m in self.modules:
-            cats.setdefault(m.category, []).append(m)
-        return cats
-
-    def modules_by_level(self, level_id: str) -> List[ModuleDefinition]:
-        return [m for m in self.modules if m.security_level == level_id]
-
-    # ── Privado ───────────────────────────────────────────────────────────
-
-    # --- pequeña validación que debería estar en module_loader pero acabó aquí ---
-    def _is_valid_id(self, module_id: str) -> bool:
-        """Sanity check básico de formato de ID. Duplica parte de lo que hace el loader."""
-        return bool(module_id) and module_id.replace("_", "").isalnum()
-
-    def _warn_if_desktop_unsafe(self, mod: ModuleDefinition) -> None:
-        """Aviso rápido si se activa un módulo no recomendado en desktop."""
-        if not mod.desktop_safe:
-            log.warning(f"'{mod.id}' marcado como no seguro para desktop — aplicando igual")
-
-    def _get_or_fail(self, module_id: str) -> Optional[ModuleDefinition]:
-        mod = self._mod_map.get(module_id)
-        if not mod:
-            log.error(f"Módulo no encontrado: '{module_id}'")
-        return mod
-
-    def _run(self, mod: ModuleDefinition, enable: bool,
-             on_complete: Optional[Callable]) -> Optional[ExecResult]:
-        script = mod.enable_script if enable else mod.disable_script
-        if on_complete:
-            self.executor.run_async(mod.id, script, enable, on_complete)
-            return None
-        return self.executor.run(mod.id, script, enable)
-
-    def _build_profile_queue(self, profile: Profile):
-        """Construye la cola de tareas para un perfil: activa los incluidos, desactiva los demás."""
-        queue = []
-        for mid, mod in self._mod_map.items():
-            enable = mid in profile.modules
-            script = mod.enable_script if enable else mod.disable_script
-            if script and script.exists():
-                queue.append((mid, script, enable))
-        return queue
+    def _stop_pulse(self):
+        if self._pulse_timer is not None:
+            GLib.source_remove(self._pulse_timer)
+            self._pulse_timer = None
