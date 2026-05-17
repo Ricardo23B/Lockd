@@ -326,3 +326,29 @@ modules:
     check_script: "restrict_suid_binaries/check.sh"
     dependencies: []
     supported_distros: [debian, ubuntu]
+    
+# ── ANTIVIRUS ─────────────────────────────────────────────────────────────
+  - id: clamav_scanner
+    name: "Antivirus ClamAV"
+    description: >
+      Instala ClamAV y configura escaneos automáticos programados tres veces
+      por semana (lun/mié/vie a las 03:00). Los archivos sospechosos se mueven
+      a cuarentena en /var/quarantine/lockd. Requiere clamav instalado.
+    category: antivirus
+    security_level: advanced
+    risk_level: low
+    requires_reboot: false
+    impact: "Escaneos automáticos de /home /tmp /var/tmp. Archivos infectados en cuarentena."
+    server_safe: true
+    desktop_safe: true
+    enable_script: "clamav_scanner/enable.sh"
+    disable_script: "clamav_scanner/disable.sh"
+    check_script: "clamav_scanner/check.sh"
+    dependencies:
+      - clamav
+      - clamav-daemon
+      - clamav-freshclam
+    supported_distros:
+      - ubuntu
+      - debian
+      - lmde
