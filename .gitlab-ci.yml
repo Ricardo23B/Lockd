@@ -1,0 +1,93 @@
+# .gitlab-ci.yml — Pipeline de CI/CD para Lockd
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+
+cache:
+  paths:
+    - .pip-cache/
+
+lint:
+  stage: lint
+  image: python:3.12-slim
+  before_script:
+    - pip install flake8 --quiet
+  script:
+    - flake8 src/ lockd.py --count --statistics
+  allow_failure: false
+
+.test_template: &test_template
+  stage: test
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq python3-gi gir1.2-gtk-4.0 libgirepository1.0-dev python3-yaml shellcheck || true
+    - pip install pyyaml pytest --quiet
+  script:
+    - echo "=== Python $PYTHON_VERSION ==="
+    - python --version
+    - python -c "import yaml; print('PyYAML OK')"
+    - python -m py_compile lockd.py
+    - python -m py_compile src/engine/distro_detector.py
+    - python -m py_compile src/engine/scanner.py
+    - python -m py_compile src/engine/module_loader.py
+    - python -m py_compile src/app/controller.py
+    - python ci/validate_modules.py
+    - python ci/validate_profiles.py
+    - find modules/ -name "*.sh" -exec shellcheck --severity=warning {} \; || true
+    - pytest tests/ -v --tb=short
+  artifacts:
+    when: on_failure
+    paths:
+      - "*.log"
+    expire_in: 7 days
+
+test:python311:
+  <<: *test_template
+  image: python:3.11-slim
+  variables:
+    PYTHON_VERSION: "3.11"
+
+test:python312:
+  <<: *test_template
+  image: python:3.12-slim
+  variables:
+    PYTHON_VERSION: "3.12"
+
+test:python313:
+  <<: *test_template
+  image: python:3.13-slim
+  variables:
+    PYTHON_VERSION: "3.13"
+
+build:deb:
+  stage: build
+  image: debian:bookworm-slim
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq dpkg-dev python3 python3-yaml python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 fakeroot lintian
+  script:
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - PKG_DIR="lockd_${VERSION}_all"
+    - mkdir -p "$PKG_DIR/DEBIAN" "$PKG_DIR/usr/bin" "$PKG_DIR/usr/lib/lockd"
+    - mkdir -p "$PKG_DIR/usr/share/applications" "$PKG_DIR/usr/share/polkit-1/actions" "$PKG_DIR/usr/share/doc/lockd"
+    - cp -r src modules profiles "$PKG_DIR/usr/lib/lockd/"
+    - cp lockd.py "$PKG_DIR/usr/lib/lockd/"
+    - cp requirements.txt "$PKG_DIR/usr/share/doc/lockd/" || true
+    - printf '#!/bin/bash\nexec python3 /usr/lib/lockd/lockd.py "$@"\n' > "$PKG_DIR/usr/bin/lockd"
+    - chmod 755 "$PKG_DIR/usr/bin/lockd"
+    - cp packaging/desktop/io.github.lockd.desktop "$PKG_DIR/usr/share/applications/"
+    - cp packaging/polkit/io.github.lockd.policy "$PKG_DIR/usr/share/polkit-1/actions/"
+    - |
+        printf 'Package: lockd\nVersion: %s\nSection: utils\nPriority: optional\nArchitecture: all\nDepends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, python3-yaml, policykit-1\nSuggests: clamav, clamav-daemon, ufw, fail2ban\nMaintainer: Ricardo Emmanuel Borda (ricardo@lockd.dev)\nHomepage: https://gitlab.com/Ricardo23B/Lockd\nDescription: Herramienta modular de hardening para Linux\n Lockd permite activar modulos de seguridad, auditorias y perfiles.\n' "$VERSION" > "$PKG_DIR/DEBIAN/control"
+    - fakeroot dpkg-deb --build "$PKG_DIR"
+    - lintian "${PKG_DIR}.deb" || true
+  artifacts:
+    name: "lockd-$CI_COMMIT_TAG"
+    paths:
+      - "*.deb"
+    expire_in: 90 days

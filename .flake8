@@ -1,0 +1,42 @@
+[flake8]
+max-line-length = 125
+exclude =
+    __pycache__,
+    .git,
+    *.egg-info
+
+# Errores de ESTILO intencionales en Lockd — alineación visual deliberada
+# E221: múltiples espacios antes de operador
+# E241: múltiples espacios después de ',' o ':'
+# E251: espacios en keyword args
+# E272: múltiples espacios antes de keyword
+# E302/E303/E305: líneas en blanco entre funciones
+# E127: indentación de continuación
+# E402: imports no al inicio (necesario para GTK gi.require_version)
+# E704: definición de función en una línea (def f(): return x)
+# W292: sin newline al final del archivo
+# W503: salto de línea antes de operador binario
+# E226: falta espacio alrededor de operador aritmético
+ignore =
+    E221,
+    E241,
+    E251,
+    E272,
+    E302,
+    E303,
+    E305,
+    E127,
+    E402,
+    E704,
+    W292,
+    W503,
+    E226
+
+# Errores REALES que sí detectamos:
+# F401: imports no usados
+# F841: variables asignadas y nunca usadas
+# F541: f-strings sin placeholders
+# E741: nombre de variable ambiguo (l, O, I)
+# E225: falta espacio alrededor de operador
+# E231: falta espacio después de coma
+# E501: línea muy larga (límite extendido a 125)

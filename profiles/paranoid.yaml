@@ -1,0 +1,25 @@
+# WARNING: breaks some dev workflows — review each module before applying
+id: paranoid
+name: "Paranoid"
+description: >
+  Máxima restricción. Activa todos los módulos disponibles incluidos
+  los de nivel experto. Evalúa el impacto en tu entorno antes de
+  aplicar. No recomendado para equipos de desarrollo personal.
+icon: security-high-symbolic
+compatible: [server]
+modules:
+  - enable_firewall
+  - automatic_security_updates
+  - install_fail2ban
+  - hardened_ssh_config
+  - secure_tmp_partition
+  - secure_shared_memory
+  - hide_procs_nonroot
+  - disable_usb_storage
+  - kernel_sysctl_hardening
+  - kernel_module_blacklist
+  - disable_core_dumps
+  - disable_ctrl_alt_del
+  - apparmor_enforce_mode
+  - restrict_compilers
+  - restrict_suid_binaries

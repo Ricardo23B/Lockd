@@ -1,0 +1,21 @@
+id: server
+name: "Server"
+description: >
+  Configuración de servidor con foco en mínima superficie de ataque:
+  SSH key-only, cortafuegos, /tmp y /proc seguros, USB bloqueado
+  y hardening completo del kernel. Recomendado para VPS y servidores.
+icon: network-server-symbolic
+compatible: [server]
+modules:
+  - enable_firewall
+  - automatic_security_updates
+  - install_fail2ban
+  - hardened_ssh_config
+  - secure_tmp_partition
+  - secure_shared_memory
+  - hide_procs_nonroot
+  - disable_usb_storage
+  - kernel_sysctl_hardening
+  - disable_core_dumps
+  - disable_ctrl_alt_del
+  - apparmor_enforce_mode
