@@ -5,7 +5,6 @@ Cards por perfil con descripción, módulos incluidos y botón Aplicar.
 Feedback inline en el botón y barra de progreso durante la aplicación.
 """
 import logging
-import threading
 from typing import TYPE_CHECKING, List
 
 import gi
