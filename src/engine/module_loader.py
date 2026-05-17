@@ -50,6 +50,7 @@ class ModuleDefinition:
     check_script:     Optional[Path]
     dependencies:     List[str] = field(default_factory=list)
     supported_distros: List[str] = field(default_factory=list)
+    self_installing:   bool       = False  # el script instala sus propias dependencias
 
     # calculados en tiempo de carga
     deps_ok:      bool       = True
@@ -70,7 +71,8 @@ class ModuleDefinition:
 
     @property
     def available(self) -> bool:
-        return self.deps_ok and self.distro_ok
+        # self_installing: el script instala sus dependencias solo (ej: clamav)
+        return (self.deps_ok or self.self_installing) and self.distro_ok
 
     @property
     def risk_color(self) -> str:
