@@ -341,6 +341,7 @@ modules:
     impact: "Escaneos automáticos de /home /tmp /var/tmp. Archivos infectados en cuarentena."
     server_safe: true
     desktop_safe: true
+    self_installing: true
     enable_script: "clamav_scanner/enable.sh"
     disable_script: "clamav_scanner/disable.sh"
     check_script: "clamav_scanner/check.sh"
