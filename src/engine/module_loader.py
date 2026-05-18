@@ -176,6 +176,7 @@ class ModuleLoader:
             check_script     = path("check_script"),
             dependencies     = list(e.get("dependencies") or []),
             supported_distros = list(e.get("supported_distros") or []),
+            self_installing   = bool(e.get("self_installing", False)),
         )
 
     # -- validaciones ---------------------------------------------------------
