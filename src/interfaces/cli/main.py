@@ -19,6 +19,8 @@ Compatible con SSH: no requiere display gráfico.
 import argparse
 import sys
 
+from src import __version__
+
 # ── colores ANSI ──────────────────────────────────────────────────────────
 class C:
     RESET  = "\033[0m"
@@ -381,7 +383,7 @@ Ejemplos:
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     p.add_argument("--no-color", action="store_true",
                    help="Deshabilitar colores (útil en SSH o logs)")
-    p.add_argument("--version", action="version", version="lockd 0.3.0")
+    p.add_argument("--version", action="version", version=f"lockd {__version__}")
 
     sub = p.add_subparsers(dest="command", metavar="comando")
     sub.required = True

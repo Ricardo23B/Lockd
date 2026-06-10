@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 from src.interfaces.gui.profile_view import ProfileView
 from src.interfaces.gui.level_view   import LevelView
 from src.interfaces.gui.module_view  import ModuleView
+from src import __version__
 
 log = logging.getLogger("lockd.gui.window")
 
@@ -354,7 +355,7 @@ class MainWindow(Adw.ApplicationWindow):
         w = Adw.AboutWindow.new()
         w.set_transient_for(self)
         w.set_application_name("lockd")
-        w.set_version("0.4.0")
+        w.set_version(__version__)
         w.set_developer_name("Contribuidores de lockd")
         w.set_license_type(Gtk.License.GPL_3_0)
         w.set_comments(

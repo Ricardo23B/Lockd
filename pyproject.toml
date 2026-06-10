@@ -4,7 +4,7 @@ build-backend = "setuptools.backends.legacy:build"
 
 [project]
 name = "lockd"
-version = "0.4.0"
+version = "1.0.0"
 description = "Herramienta modular de hardening para sistemas Linux"
 readme = "README.md"
 license = { file = "LICENSE" }

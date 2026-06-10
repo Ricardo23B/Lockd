@@ -20,7 +20,7 @@ import sys
 APP_DIR = __file__.rsplit("/", 1)[0] if "/" in __file__ else "."
 sys.path.insert(0, APP_DIR)
 
-APP_VERSION = "0.3.0"
+from src import __version__ as APP_VERSION
 APP_ID      = "io.github.lockd"
 
 # subcomandos CLI conocidos
