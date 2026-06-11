@@ -20,14 +20,12 @@ log = logging.getLogger("lockd.loader")
 
 KNOWN_RISK_LEVELS      = {"low", "medium", "high"}
 SUPPORTED_SECURITY_LEVELS  = {"basic", "advanced", "expert", "paranoid"}
-MODULE_MODULE_CATEGORIES       = {
+KNOWN_CATEGORIES       = {
     "network", "filesystem", "kernel",
     "services", "access_control", "system_hardening", "privacy",
 }
 
 
-# NOTE: loader grew too much, should probably split this later
-# NOTE: loader grew too much, should probably split this later
 class LoaderError(Exception):
     """Error al cargar o validar modules.yaml."""
 
@@ -164,7 +162,7 @@ class ModuleLoader:
             id               = mod_id,
             name             = req("name"),
             description      = opt("description"),
-            category         = opt("category", "system_hardening"),
+            category         = _valid_category(opt("category", "system_hardening"), mod_id),
             security_level   = opt("security_level", "advanced"),
             risk_level       = opt("risk_level", "medium"),
             requires_reboot  = bool(e.get("requires_reboot", False)),
@@ -199,7 +197,17 @@ class ModuleLoader:
     def _check_distro(self, mod: ModuleDefinition) -> None:
         if not mod.supported_distros:
             return
-        from src.engine.distro_detector import is_supported
+        from lockd.engine.distro_detector import is_supported
         if not is_supported(mod.supported_distros):
             mod.distro_ok = False
             log.warning(f"'{mod.id}': no soportado en esta distro")
+
+def _valid_category(cat: str, module_id: str) -> str:
+    """Advierte (sin rechazar) si la categoría no es una conocida — detecta typos
+    en modules.yaml que antes pasaban en silencio."""
+    if cat not in KNOWN_CATEGORIES:
+        log.warning(
+            f"'{module_id}': categoría desconocida '{cat}' "
+            f"(conocidas: {', '.join(sorted(KNOWN_CATEGORIES))})"
+        )
+    return cat

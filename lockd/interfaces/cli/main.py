@@ -19,7 +19,7 @@ Compatible con SSH: no requiere display gráfico.
 import argparse
 import sys
 
-from src import __version__
+from lockd import __version__
 
 # ── colores ANSI ──────────────────────────────────────────────────────────
 class C:
@@ -367,7 +367,7 @@ def _print_result(result, dry_run: bool = False):
 
 def cmd_tui(ctrl, args):
     """Abre la TUI interactiva para el Modo Avanzado."""
-    from src.interfaces.cli.tui import run_tui
+    from lockd.interfaces.cli.tui import run_tui
     run_tui(ctrl)
 
 def build_parser() -> argparse.ArgumentParser:
@@ -470,10 +470,10 @@ def run(argv=None):
     if args.no_color or not sys.stdout.isatty():
         C.disable()
 
-    from src.engine import logger
+    from lockd.engine import logger
     logger.setup(args.log_level)
 
-    from src.app.controller import Controller
+    from lockd.app.controller import Controller
     ctrl = Controller(dry_run=args.dry_run)
 
     handler = COMMANDS.get(args.command)

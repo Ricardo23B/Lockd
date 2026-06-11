@@ -8,16 +8,17 @@ habilitar/deshabilitar módulos, ejecutar scan.
 Tanto la GUI como la CLI delegan en este controlador.
 """
 import logging
+import subprocess
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
-from src.engine.module_loader import ModuleDefinition, ModuleLoader
-from src.engine.executor import Executor, ExecResult
-from src.engine.scanner import SecurityReport, run_scan
-from src.engine.state_runtime import StateManager
-from src.engine.profile_ctx import ProfileManager, Profile
-from src.engine.level_manager import LevelManager
-from src.engine.distro_detector import detect as detect_distro
+from lockd.engine.module_loader import ModuleDefinition, ModuleLoader
+from lockd.engine.executor import Executor, ExecResult
+from lockd.engine.scanner import SecurityReport, run_scan
+from lockd.engine.state_runtime import StateManager
+from lockd.engine.profile_ctx import ProfileManager, Profile
+from lockd.engine.level_manager import LevelManager
+from lockd.engine.distro_detector import detect as detect_distro
 
 log = logging.getLogger("lockd.ctrl")
 
@@ -41,6 +42,7 @@ class Controller:
         profiles_dir: Path = PROFILES_DIR,
         state_file:   Path = STATE_FILE,
         dry_run:      bool = False,
+        verify_on_init: bool = True,
     ):
         self.dry_run = dry_run
 
@@ -60,6 +62,13 @@ class Controller:
             f"distro={distro['pretty']}, dry_run={dry_run}"
         )
 
+        # Reconciliar el estado registrado con el sistema REAL al arrancar.
+        # state.json es por usuario y puede mentir (otro usuario aplicó
+        # módulos, o alguien tocó la config a mano); los check scripts son
+        # la fuente de verdad. verify_on_init=False solo para tests.
+        if verify_on_init:
+            self.refresh_states()
+
     # ── Módulos individuales ──────────────────────────────────────────────
 
     def get_module(self, module_id: str) -> Optional[ModuleDefinition]:
@@ -70,6 +79,69 @@ class Controller:
 
     def is_enabled(self, module_id: str) -> bool:
         return self.state.is_enabled(module_id)
+
+    # ── Verificación contra el sistema real ──────────────────────────────
+
+    CHECK_TIMEOUT = 10  # segundos por check script
+
+    def verify(self, module_id: str) -> str:
+        """
+        Ejecuta el check script del módulo (sin privilegios) y devuelve el
+        estado REAL del sistema: 'enabled' | 'disabled' | 'unknown'.
+        Contrato de exit codes: 0 = activo, 1 = inactivo, 2 = no determinable.
+        Cualquier otra cosa (timeout, script ausente, rc inesperado) = unknown.
+        """
+        mod = self._mod_map.get(module_id)
+        if not mod or not mod.check_script or not mod.check_script.exists():
+            return "unknown"
+        try:
+            r = subprocess.run(
+                ["bash", str(mod.check_script)],
+                capture_output=True, timeout=self.CHECK_TIMEOUT,
+            )
+        except (subprocess.TimeoutExpired, OSError) as e:
+            log.warning(f"check de '{module_id}' falló: {e}")
+            return "unknown"
+        return {0: "enabled", 1: "disabled"}.get(r.returncode, "unknown")
+
+    def refresh_states(self) -> Dict[str, str]:
+        """
+        Reconcilia state.json con el sistema real, módulo por módulo.
+        Un check determinante (0/1) actualiza el estado registrado; un
+        'unknown' (2) conserva lo registrado en lugar de inventar.
+        Devuelve el estado efectivo de cada módulo.
+        """
+        effective: Dict[str, str] = {}
+        for mid in self._mod_map:
+            real     = self.verify(mid)
+            recorded = self.state.get(mid)
+            if real == "unknown":
+                effective[mid] = recorded
+                continue
+            if real != recorded:
+                log.info(f"reconciliación: {mid} '{recorded}' → '{real}' (sistema real)")
+                self.state.set(mid, real)
+            effective[mid] = real
+        return effective
+
+    def _verified(self, result: Optional[ExecResult]) -> Optional[ExecResult]:
+        """
+        Tras una operación REAL exitosa, contrasta el resultado con el check
+        del módulo. Si el script reportó éxito pero el sistema no lo refleja,
+        el estado pasa a 'error' — detecta scripts que mienten o fallan
+        silenciosamente.
+        """
+        if not result or result.dry_run or not result.ok:
+            return result
+        real     = self.verify(result.module_id)
+        expected = "enabled" if result.action == "enable" else "disabled"
+        if real not in ("unknown", expected):
+            log.warning(
+                f"'{result.module_id}': el script terminó OK pero el check "
+                f"reporta '{real}' (se esperaba '{expected}') — estado: error"
+            )
+            self.state.set(result.module_id, "error")
+        return result
 
     def enable(
         self,
@@ -140,7 +212,7 @@ class Controller:
         results = []
 
         for i, (mid, script, enable) in enumerate(queue):
-            r = self.executor.run(mid, script, enable)
+            r = self._verified(self.executor.run(mid, script, enable))
             results.append(r)
             if on_step:
                 on_step(r, i + 1, len(queue))
@@ -169,7 +241,7 @@ class Controller:
 
         def _run():
             for i, (mid, script, enable) in enumerate(queue):
-                r = self.executor.run(mid, script, enable)
+                r = self._verified(self.executor.run(mid, script, enable))
                 results.append(r)
                 on_step(r, i + 1, total)
                 if r.cancelled:
@@ -196,7 +268,7 @@ class Controller:
             mod = self._mod_map.get(mid)
             if not mod or not mod.enable_script:
                 continue
-            r = self.executor.run(mid, mod.enable_script, enable=True)
+            r = self._verified(self.executor.run(mid, mod.enable_script, enable=True))
             results.append(r)
             if on_step:
                 on_step(r, i + 1, len(mod_ids))
@@ -244,9 +316,12 @@ class Controller:
              on_complete: Optional[Callable]) -> Optional[ExecResult]:
         script = mod.enable_script if enable else mod.disable_script
         if on_complete:
-            self.executor.run_async(mod.id, script, enable, on_complete)
+            self.executor.run_async(
+                mod.id, script, enable,
+                lambda r: on_complete(self._verified(r)),
+            )
             return None
-        return self.executor.run(mod.id, script, enable)
+        return self._verified(self.executor.run(mod.id, script, enable))
 
     def _build_profile_queue(self, profile: Profile, strict: bool = False):
         """

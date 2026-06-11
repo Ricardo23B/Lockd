@@ -14,10 +14,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk, GLib
 
 if TYPE_CHECKING:
-    from src.app.controller import Controller
-from src.engine.module_loader import ModuleDefinition
-from src.engine.executor import ExecResult
-from src.interfaces.gui.module_widget import ModuleWidget
+    from lockd.app.controller import Controller
+from lockd.engine.module_loader import ModuleDefinition
+from lockd.engine.executor import ExecResult
+from lockd.interfaces.gui.module_widget import ModuleWidget
 
 log = logging.getLogger("lockd.gui.modules")
 

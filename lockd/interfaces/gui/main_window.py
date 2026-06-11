@@ -37,12 +37,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk, GLib
 
 if TYPE_CHECKING:
-    from src.app.controller import Controller
+    from lockd.app.controller import Controller
 
-from src.interfaces.gui.profile_view import ProfileView
-from src.interfaces.gui.level_view   import LevelView
-from src.interfaces.gui.module_view  import ModuleView
-from src import __version__
+from lockd.interfaces.gui.profile_view import ProfileView
+from lockd.interfaces.gui.level_view   import LevelView
+from lockd.interfaces.gui.module_view  import ModuleView
+from lockd import __version__
 
 log = logging.getLogger("lockd.gui.window")
 

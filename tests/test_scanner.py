@@ -9,7 +9,7 @@ import types
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# ── Asegurar que src/ sea importable desde cualquier directorio ────────────
+# ── Asegurar que el paquete lockd sea importable desde cualquier directorio ──
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -25,7 +25,7 @@ gi_mock.repository = repo_mock
 sys.modules.setdefault("gi", gi_mock)
 sys.modules.setdefault("gi.repository", repo_mock)
 
-from src.engine.scanner import (  # noqa: E402
+from lockd.engine.scanner import (  # noqa: E402
     run_scan,
     CheckResult,
     SecurityReport,
@@ -226,7 +226,7 @@ class TestRunScan:
 class TestHelpers:
     def test_sshd_option_archivo_inexistente(self):
         """Si no existe sshd_config, debe devolver None sin crashear."""
-        with patch("src.engine.scanner.Path") as MockPath:
+        with patch("lockd.engine.scanner.Path") as MockPath:
             instance = MagicMock()
             instance.exists.return_value = False
             MockPath.return_value = instance

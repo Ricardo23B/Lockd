@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Dict
 
-from src.engine.module_loader import ModuleDefinition
+from lockd.engine.module_loader import ModuleDefinition
 
 log = logging.getLogger("lockd.levels")
 

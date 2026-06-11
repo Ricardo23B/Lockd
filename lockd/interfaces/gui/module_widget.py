@@ -17,7 +17,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk, Pango
 
-from src.engine.module_loader import ModuleDefinition
+from lockd.engine.module_loader import ModuleDefinition
 
 log = logging.getLogger("lockd.gui.widget")
 

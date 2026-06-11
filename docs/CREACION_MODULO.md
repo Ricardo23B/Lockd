@@ -13,7 +13,7 @@ No hace falta tocar el código Python.
 modules/mi_modulo/
 ├── enable.sh    ← aplica la medida de seguridad
 ├── disable.sh   ← deshace exactamente lo que hizo enable.sh
-└── check.sh     ← devuelve 0 si activo, 1 si no
+└── check.sh     ← estado real: 0 activo · 1 inactivo · 2 no determinable
 ```
 
 ---
@@ -231,3 +231,20 @@ Abre un Pull Request con:
 - README.md del módulo explicando qué hace
 - Salida de `sudo DRY_RUN=1 bash enable.sh` en tu equipo
 - Versión de Debian/Ubuntu probada
+
+
+## Contrato del check script
+
+Lockd ejecuta el check SIN privilegios al arrancar (reconcilia el estado
+registrado con el sistema real) y después de cada operación (si tu script
+reporta éxito pero el check lo contradice, el módulo queda en `error`).
+
+Exit codes — contrato estricto:
+- `0` — el módulo está ACTIVO en el sistema
+- `1` — el módulo está INACTIVO
+- `2` — no determinable sin privilegios (Lockd conserva el estado registrado
+  en lugar de inventar un resultado; usá esto en vez de fallar o adivinar)
+
+Reglas: nunca requiere root, nunca modifica el sistema, termina en menos de
+10 segundos. `tests/test_state_reconciliation.py` verifica este contrato
+para todos los checks declarados en `modules.yaml`.

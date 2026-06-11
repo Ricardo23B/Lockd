@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from src.engine.state_runtime import StateManager
+from lockd.engine.state_runtime import StateManager
 
 log           = logging.getLogger("lockd.executor")
 TIMEOUT        = 120    # segundos máximo por script (modo legacy)

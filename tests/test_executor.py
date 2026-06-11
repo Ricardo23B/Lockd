@@ -18,7 +18,7 @@ from unittest.mock import patch, MagicMock
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.engine.executor import Executor, CANCEL_CODE  # noqa: E402
+from lockd.engine.executor import Executor, CANCEL_CODE  # noqa: E402
 
 
 def _fake_proc(rc=0, stdout="", stderr=""):
@@ -38,8 +38,8 @@ def _make_executor(tmp_path, dry_run):
     script.chmod(0o755)
 
     state = MagicMock()
-    with patch("src.engine.executor.shutil.which", return_value="/usr/bin/pkexec"), \
-         patch("src.engine.executor._find_helper", return_value=None):
+    with patch("lockd.engine.executor.shutil.which", return_value="/usr/bin/pkexec"), \
+         patch("lockd.engine.executor._find_helper", return_value=None):
         ex = Executor(state, dry_run=dry_run)
     return ex, state, script
 
@@ -47,7 +47,7 @@ def _make_executor(tmp_path, dry_run):
 class TestDryRunPropagation:
     def test_dry_run_pasa_flag_como_argumento(self, tmp_path):
         ex, _, script = _make_executor(tmp_path, dry_run=True)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()) as mock_run:
             ex.run("mod_x", script, enable=True)
 
@@ -61,14 +61,14 @@ class TestDryRunPropagation:
 
     def test_dry_run_tambien_setea_env_redundante(self, tmp_path):
         ex, _, script = _make_executor(tmp_path, dry_run=True)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()) as mock_run:
             ex.run("mod_x", script, enable=True)
         assert mock_run.call_args.kwargs["env"].get("DRY_RUN") == "1"
 
     def test_modo_real_no_pasa_flag(self, tmp_path):
         ex, _, script = _make_executor(tmp_path, dry_run=False)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()) as mock_run:
             ex.run("mod_x", script, enable=True)
         cmd = mock_run.call_args.args[0]
@@ -78,7 +78,7 @@ class TestDryRunPropagation:
     def test_setter_dry_run_afecta_siguiente_ejecucion(self, tmp_path):
         ex, _, script = _make_executor(tmp_path, dry_run=False)
         ex.dry_run = True
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()) as mock_run:
             ex.run("mod_x", script, enable=True)
         assert "--dry-run" in mock_run.call_args.args[0]
@@ -92,15 +92,15 @@ class TestModoHelper:
         helper = tmp_path / "lockd-helper"
         helper.write_text("#!/usr/bin/env python3\n")
         state = MagicMock()
-        with patch("src.engine.executor.shutil.which",
+        with patch("lockd.engine.executor.shutil.which",
                    return_value="/usr/bin/pkexec"), \
-             patch("src.engine.executor._find_helper", return_value=helper):
+             patch("lockd.engine.executor._find_helper", return_value=helper):
             ex = Executor(state, dry_run=dry_run)
         return ex, state, helper
 
     def test_comando_via_helper(self, tmp_path):
         ex, _, helper = self._make_helper_executor(tmp_path, dry_run=False)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()) as mock_run:
             ex.run("mod_x", Path("/cualquier/ruta/enable.sh"), enable=True)
         cmd = mock_run.call_args.args[0]
@@ -108,7 +108,7 @@ class TestModoHelper:
 
     def test_dry_run_via_helper(self, tmp_path):
         ex, state, helper = self._make_helper_executor(tmp_path, dry_run=True)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()) as mock_run:
             ex.run("mod_x", Path("/cualquier/ruta/enable.sh"), enable=True)
         cmd = mock_run.call_args.args[0]
@@ -117,14 +117,14 @@ class TestModoHelper:
 
     def test_disable_via_helper(self, tmp_path):
         ex, _, helper = self._make_helper_executor(tmp_path, dry_run=False)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()) as mock_run:
             ex.run("mod_x", Path("/cualquier/ruta/disable.sh"), enable=False)
         assert mock_run.call_args.args[0][2] == "disable"
 
     def test_dry_run_no_modifica_estado(self, tmp_path):
         ex, state, script = _make_executor(tmp_path, dry_run=True)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()):
             r = ex.run("mod_x", script, enable=True)
         assert r.ok and r.dry_run
@@ -132,7 +132,7 @@ class TestModoHelper:
 
     def test_exito_real_marca_enabled(self, tmp_path):
         ex, state, script = _make_executor(tmp_path, dry_run=False)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc()):
             r = ex.run("mod_x", script, enable=True)
         assert r.ok and not r.dry_run
@@ -140,7 +140,7 @@ class TestModoHelper:
 
     def test_fallo_real_marca_error(self, tmp_path):
         ex, state, script = _make_executor(tmp_path, dry_run=False)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc(rc=1, stderr="boom")):
             r = ex.run("mod_x", script, enable=True)
         assert not r.ok
@@ -148,7 +148,7 @@ class TestModoHelper:
 
     def test_cancelacion_pkexec_no_toca_estado(self, tmp_path):
         ex, state, script = _make_executor(tmp_path, dry_run=False)
-        with patch("src.engine.executor.subprocess.run",
+        with patch("lockd.engine.executor.subprocess.run",
                    return_value=_fake_proc(rc=CANCEL_CODE)):
             r = ex.run("mod_x", script, enable=True)
         assert r.cancelled and not r.ok

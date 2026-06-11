@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, List, Tuple
 
 if TYPE_CHECKING:
-    from src.app.controller import Controller
+    from lockd.app.controller import Controller
 
 # ── paleta de colores (índices) ───────────────────────────────────────────────
 C_NORMAL   = 0

@@ -89,15 +89,33 @@ class SecurityReport:
 
 @check
 def check_firewall() -> CheckResult:
+    """Sin root: `ufw status` requiere privilegios y devolvía un falso
+    "inactivo" desde la GUI. Se lee /etc/ufw/ufw.conf (donde `ufw enable`
+    persiste ENABLED=yes) con fallback al estado del servicio."""
     if not shutil.which("ufw"):
         return CheckResult("firewall", "Cortafuegos (UFW)", "unknown",
                            "ufw no está instalado", "enable_firewall", "network")
-    r = subprocess.run(["ufw", "status"], capture_output=True, text=True)
-    if "active" in r.stdout.lower():
+    conf = Path("/etc/ufw/ufw.conf")
+    try:
+        if conf.exists():
+            enabled = any(line.strip() == "ENABLED=yes"
+                          for line in conf.read_text().splitlines())
+            if enabled:
+                return CheckResult("firewall", "Cortafuegos (UFW)", "secure",
+                                   "UFW habilitado (ufw.conf)", category="network")
+            return CheckResult("firewall", "Cortafuegos (UFW)", "insecure",
+                               "UFW instalado pero inactivo",
+                               "enable_firewall", "network")
+    except OSError:
+        pass
+    r = subprocess.run(["systemctl", "is-active", "ufw"],
+                       capture_output=True, text=True)
+    if r.stdout.strip() == "active":
         return CheckResult("firewall", "Cortafuegos (UFW)", "secure",
-                           "UFW activo", category="network")
-    return CheckResult("firewall", "Cortafuegos (UFW)", "insecure",
-                       "UFW instalado pero inactivo", "enable_firewall", "network")
+                           "Servicio ufw activo", category="network")
+    return CheckResult("firewall", "Cortafuegos (UFW)", "unknown",
+                       "No determinable sin privilegios",
+                       "enable_firewall", "network")
 
 
 @check
@@ -118,6 +136,10 @@ def check_fail2ban() -> CheckResult:
 
 @check
 def check_ssh_password() -> CheckResult:
+    if not _sshd_installed():
+        return CheckResult("ssh_password", "SSH: autenticación por contraseña",
+                           "secure", "Servidor OpenSSH no instalado — sin exposición SSH",
+                           category="services")
     val = _sshd_option("PasswordAuthentication")
     if val == "no":
         return CheckResult("ssh_password", "SSH: autenticación por contraseña",
@@ -133,6 +155,10 @@ def check_ssh_password() -> CheckResult:
 
 @check
 def check_ssh_root() -> CheckResult:
+    if not _sshd_installed():
+        return CheckResult("ssh_root", "SSH: login root", "secure",
+                           "Servidor OpenSSH no instalado — sin exposición SSH",
+                           category="services")
     val = _sshd_option("PermitRootLogin")
     if val in ("no", "prohibit-password"):
         return CheckResult("ssh_root", "SSH: login root", "secure",
@@ -186,6 +212,10 @@ def check_proc_hidepid() -> CheckResult:
         ["findmnt", "-n", "-o", "OPTIONS", "/proc"],
         capture_output=True, text=True
     )
+    if r.returncode != 0:
+        return CheckResult("proc_hidepid", "/proc: visibilidad de procesos",
+                           "unknown", "No se pudo leer las opciones de montaje",
+                           "hide_procs_nonroot", "access_control")
     opts = r.stdout.strip()
     if "hidepid=2" in opts or "hidepid=invisible" in opts:
         return CheckResult("proc_hidepid", "/proc: visibilidad de procesos", "secure",
@@ -315,6 +345,10 @@ def check_apparmor() -> CheckResult:
 
     tool = shutil.which("apparmor_status") or shutil.which("aa-status")
     r2 = subprocess.run([tool], capture_output=True, text=True)
+    if r2.returncode != 0:
+        return CheckResult("apparmor", "AppArmor", "unknown",
+                           "Servicio activo; perfiles no determinables sin privilegios",
+                           "apparmor_enforce_mode", "access_control")
     if "enforce" in r2.stdout.lower():
         return CheckResult("apparmor", "AppArmor", "secure",
                            "Activo con perfiles en modo enforce",
@@ -346,26 +380,31 @@ def check_open_ports() -> CheckResult:
                        category="network")
 
 
+# Debe coincidir con la DENYLIST de modules/restrict_suid_binaries/enable.sh:
+# son los binarios que el módulo efectivamente corrige. Marcar "insecure" por
+# binarios que el módulo no tocaría sería recomendar un fix que no arregla nada.
+_SUID_DENYLIST = {
+    "chfn", "chsh", "newgrp", "sg", "mount.cifs", "mount.nfs",
+    "mount.ecryptfs_private", "ntfs-3g", "pppd", "clockdiff",
+    "traceroute6.iputils",
+}
+
+
 @check
 def check_suid_binaries() -> CheckResult:
-    # lista de binarios SUID conocidos y necesarios
-    safe_suid = {
-        "sudo", "su", "mount", "umount", "passwd", "newgrp", "chfn",
-        "chsh", "gpasswd", "pkexec", "ping", "ping6",
-    }
     try:
         r = subprocess.run(
             ["find", "/usr", "/bin", "/sbin", "-perm", "-4000", "-type", "f"],
             capture_output=True, text=True, timeout=15
         )
         found = [Path(p).name for p in r.stdout.splitlines() if p.strip()]
-        risky = [f for f in found if f not in safe_suid]
+        risky = sorted(set(found) & _SUID_DENYLIST)
         if risky:
             return CheckResult("suid_binaries", "Binarios SUID", "insecure",
-                               f"SUID no esenciales: {', '.join(risky[:5])}{'...' if len(risky) > 5 else ''}",
+                               f"SUID de riesgo corregible: {', '.join(risky)}",
                                "restrict_suid_binaries", "access_control")
         return CheckResult("suid_binaries", "Binarios SUID", "secure",
-                           f"Solo binarios SUID esenciales ({len(found)} encontrados)",
+                           f"Sin SUID de riesgo conocido ({len(found)} binarios SUID en total)",
                            category="access_control")
     except (subprocess.TimeoutExpired, OSError):
         return CheckResult("suid_binaries", "Binarios SUID", "unknown",
@@ -440,6 +479,11 @@ def _suggest_profile(report: SecurityReport) -> Optional[str]:
 
 # ── Helpers internos ───────────────────────────────────────────────────────
 
+def _sshd_installed() -> bool:
+    """Hay servidor OpenSSH si existe su config o su binario."""
+    return Path("/etc/ssh/sshd_config").exists() or bool(shutil.which("sshd"))
+
+
 def _sshd_option(option: str) -> Optional[str]:
     """Lee un campo de sshd_config y sus drop-ins. Devuelve el último valor efectivo."""
     files = [Path("/etc/ssh/sshd_config")]
@@ -450,7 +494,11 @@ def _sshd_option(option: str) -> Optional[str]:
     for f in files:
         if not f.exists():
             continue
-        for line in f.read_text().splitlines():
+        try:
+            text = f.read_text()
+        except OSError:
+            continue
+        for line in text.splitlines():
             line = line.strip()
             if line.startswith("#"):
                 continue

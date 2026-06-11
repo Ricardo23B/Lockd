@@ -17,26 +17,26 @@ lint:
   before_script:
     - pip install flake8 --quiet
   script:
-    - flake8 src/ lockd.py --count --statistics
+    - flake8 lockd/ lockd.py --count --statistics
   allow_failure: false
 
 .test_template: &test_template
   stage: test
   before_script:
-    - apt-get update -qq && apt-get install -y -qq python3-gi gir1.2-gtk-4.0 libgirepository1.0-dev python3-yaml shellcheck || true
+    - apt-get update -qq && apt-get install -y -qq python3-gi gir1.2-gtk-4.0 libgirepository1.0-dev python3-yaml shellcheck
     - pip install pyyaml pytest --quiet
   script:
     - echo "=== Python $PYTHON_VERSION ==="
     - python --version
     - python -c "import yaml; print('PyYAML OK')"
     - python -m py_compile lockd.py
-    - python -m py_compile src/engine/distro_detector.py
-    - python -m py_compile src/engine/scanner.py
-    - python -m py_compile src/engine/module_loader.py
-    - python -m py_compile src/app/controller.py
+    - python -m py_compile lockd/engine/distro_detector.py
+    - python -m py_compile lockd/engine/scanner.py
+    - python -m py_compile lockd/engine/module_loader.py
+    - python -m py_compile lockd/app/controller.py
     - python ci/validate_modules.py
     - python ci/validate_profiles.py
-    - find modules/ -name "*.sh" -exec shellcheck --severity=warning {} \; || true
+    - find modules/ -name "*.sh" -exec shellcheck --severity=warning {} \;
     - pytest tests/ -v --tb=short
   artifacts:
     when: on_failure
@@ -75,7 +75,10 @@ build:deb:
     - PKG_DIR="lockd_${VERSION}_all"
     - mkdir -p "$PKG_DIR/DEBIAN" "$PKG_DIR/usr/bin" "$PKG_DIR/usr/lib/lockd"
     - mkdir -p "$PKG_DIR/usr/share/applications" "$PKG_DIR/usr/share/polkit-1/actions" "$PKG_DIR/usr/share/doc/lockd"
-    - cp -r src modules profiles "$PKG_DIR/usr/lib/lockd/"
+    - mkdir -p "$PKG_DIR/usr/libexec/lockd"
+    - cp helper/lockd-helper "$PKG_DIR/usr/libexec/lockd/lockd-helper"
+    - chmod 755 "$PKG_DIR/usr/libexec/lockd/lockd-helper"
+    - cp -r lockd lockd.py modules profiles "$PKG_DIR/usr/lib/lockd/"
     - cp lockd.py "$PKG_DIR/usr/lib/lockd/"
     - cp requirements.txt "$PKG_DIR/usr/share/doc/lockd/" || true
     - printf '#!/bin/bash\nexec python3 /usr/lib/lockd/lockd.py "$@"\n' > "$PKG_DIR/usr/bin/lockd"

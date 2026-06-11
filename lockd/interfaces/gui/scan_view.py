@@ -14,8 +14,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 
 if TYPE_CHECKING:
-    from src.app.controller import Controller
-    from src.engine.scanner import SecurityReport
+    from lockd.app.controller import Controller
+    from lockd.engine.scanner import SecurityReport
 
 log = logging.getLogger("lockd.gui.scan")
 

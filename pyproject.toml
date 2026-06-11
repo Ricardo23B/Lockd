@@ -1,10 +1,10 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "lockd"
-version = "1.0.0"
+version = "1.0.1"
 description = "Herramienta modular de hardening para sistemas Linux"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -65,22 +65,11 @@ Issues     = "https://gitlab.com/Ricardo23B/Lockd/-/issues"
 Changelog  = "https://gitlab.com/Ricardo23B/Lockd/-/blob/main/CHANGELOG.md"
 
 [project.scripts]
-lockd = "lockd:main"
+lockd = "lockd.entry:main"
 
 [tool.setuptools.packages.find]
 where   = ["."]
-include = ["src*"]
-
-[tool.flake8]
-max-line-length = 100
-exclude = [
-    "__pycache__",
-    ".git",
-    "*.egg-info",
-]
-per-file-ignores = [
-    "__init__.py:F401",
-]
+include = ["lockd*"]
 
 [tool.pytest.ini_options]
 testpaths    = ["tests"]

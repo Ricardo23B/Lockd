@@ -20,7 +20,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src.app.controller import Controller  # noqa: E402
+from lockd.app.controller import Controller  # noqa: E402
 
 
 @pytest.fixture
@@ -30,6 +30,7 @@ def ctrl(tmp_path):
         profiles_dir=ROOT / "profiles",
         state_file=tmp_path / "state.json",
         dry_run=True,
+        verify_on_init=False,  # estado controlado por el test, no por el sandbox
     )
 
 

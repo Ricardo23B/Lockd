@@ -101,7 +101,7 @@ sudo apt install ufw fail2ban
 ## Instalación
 
 ```bash
-git clone https://github.com/Ricardo23B/Lockd.git
+git clone https://gitlab.com/Ricardo23B/Lockd.git
 cd Lockd
 bash setup.sh
 ```
@@ -285,7 +285,7 @@ lockd/
 ├── setup.sh               # setup + aliases + launcher
 ├── pyproject.toml         # metadatos del paquete Python
 ├── CHANGELOG.md           # historial de versiones
-├── src/
+├── lockd/
 │   ├── app/controller.py      # lógica de negocio central
 │   ├── engine/
 │   │   ├── module_loader.py   # carga y valida modules.yaml

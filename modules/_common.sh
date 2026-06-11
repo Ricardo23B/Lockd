@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # _common.sh — funciones comunes para todos los scripts de Lockd
 # Source: source "$(dirname "$0")/../_common.sh"
 GREEN="\033[0;32m"; YELLOW="\033[1;33m"; RED="\033[0;31m"; NC="\033[0m"
@@ -31,7 +32,8 @@ backup() {
     local keep="${LOCKD_BACKUP_KEEP:-5}"
     [ -f "$src" ] || return 0
     mkdir -p "$dir"
-    local dest="${dir}/$(basename "$src").bak.$(date +%Y%m%dT%H%M%S)"
+    local dest
+    dest="${dir}/$(basename "$src").bak.$(date +%Y%m%dT%H%M%S)"
     cp -p "$src" "$dest" && info "Backup: $src → $dest"
     if [ -n "${LOCKD_MANIFEST:-}" ]; then
         printf '%s|%s|%s|%s\n' "${LOCKD_OP_ID:-manual}" "$mod" "$src" "$dest" \
@@ -81,5 +83,6 @@ find_sysctl() {
     echo ""
     return 1
 }
+# shellcheck disable=SC2034  # SYSCTL la consumen los scripts que hacen source
 SYSCTL="$(find_sysctl || true)"
 
