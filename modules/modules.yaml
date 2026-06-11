@@ -311,14 +311,17 @@ modules:
   - id: restrict_suid_binaries
     name: "Auditar y Restringir Binarios SUID"
     description: >
-      Escanea el sistema en busca de binarios con bit SUID activo y elimina
-      ese bit de los que no están en la lista de binarios SUID seguros y
-      necesarios. Reduce la superficie de ataque para escalada de privilegios.
+      Escanea el sistema en busca de binarios con bit SUID activo. Elimina
+      el bit SOLO de una lista explícita de binarios de riesgo conocido y
+      bajo impacto (chfn, chsh, mount.cifs, ntfs-3g, pppd, etc.); el resto
+      se reporta en una lista de auditoría sin modificarse. Los binarios de
+      autenticación e infraestructura (polkit, sudo, dbus, PAM) jamás se
+      tocan. Reduce la superficie de ataque para escalada de privilegios.
     category: access_control
     security_level: expert
-    risk_level: high
+    risk_level: medium
     requires_reboot: false
-    impact: "Binarios SUID no esenciales perderán ese privilegio. Guarda lista de cambios."
+    impact: "Usuarios no-root pierden funciones puntuales (cambiar su shell, montar CIFS/NFS/NTFS, PPP). Guarda lista de cambios y lista de auditoría."
     server_safe: true
     desktop_safe: false
     enable_script: "restrict_suid_binaries/enable.sh"

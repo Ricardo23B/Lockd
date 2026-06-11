@@ -14,7 +14,7 @@ try:
 except ImportError:
     raise SystemExit("Falta PyYAML: apt install python3-yaml")
 
-log = logging.getLogger("lt.profiles")
+log = logging.getLogger("lockd.profiles")
 
 
 @dataclass

@@ -16,7 +16,7 @@ try:
 except ImportError:
     raise SystemExit("Falta PyYAML: sudo apt install python3-yaml")
 
-log = logging.getLogger("lt.loader")  # legacy name kept
+log = logging.getLogger("lockd.loader")
 
 KNOWN_RISK_LEVELS      = {"low", "medium", "high"}
 SUPPORTED_SECURITY_LEVELS  = {"basic", "advanced", "expert", "paranoid"}

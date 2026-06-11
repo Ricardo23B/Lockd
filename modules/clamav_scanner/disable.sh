@@ -2,9 +2,16 @@
 # clamav_scanner/disable.sh — desactiva los escaneos programados de ClamAV
 set -euo pipefail
 . "$(dirname "$0")/../_common.sh"
+check_root
 
 TIMER_FILE="/etc/systemd/system/lockd-clamav.timer"
 SERVICE_FILE="/etc/systemd/system/lockd-clamav.service"
+
+if [ "$DRY_RUN" = "1" ]; then
+    warn "[DRY-RUN] Would: systemctl disable --now lockd-clamav.timer"
+    warn "[DRY-RUN] Would: rm $TIMER_FILE $SERVICE_FILE && systemctl daemon-reload"
+    exit 0
+fi
 
 info "Desactivando escaneos programados de ClamAV..."
 

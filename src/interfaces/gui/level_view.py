@@ -130,7 +130,7 @@ class LevelView(Gtk.Box):
             self._ctrl.apply_level(lvl.id, on_step=on_step)
             GLib.idle_add(self._done, btn)
 
-        threading.Thread(target=run, daemon=True, name=f"lt-level-{lvl.id}").start()
+        threading.Thread(target=run, daemon=True, name=f"lockd-level-{lvl.id}").start()
 
     def _update_step(self, r: ExecResult, n: int, total: int):
         self._results.append(r)

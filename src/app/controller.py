@@ -119,18 +119,24 @@ class Controller:
         self,
         profile_id: str,
         on_step: Optional[Callable[[ExecResult, int, int], None]] = None,
+        strict: bool = False,
     ) -> List[ExecResult]:
         """
         Aplica un perfil completo de forma síncrona.
-        Activa los módulos incluidos, desactiva los que no estén.
+
+        Default ADITIVO: activa los módulos del perfil y no toca el resto.
+        strict=True: además desactiva los módulos fuera del perfil que
+        LOCKD activó previamente (estado 'enabled'). Nunca toca módulos
+        que Lockd no haya activado.
         on_step(result, step_n, total) — callback de progreso opcional.
         """
         profile = self.profiles.by_id(profile_id)
         if not profile:
             raise ValueError(f"Perfil no encontrado: {profile_id}")
 
-        log.info(f"Aplicando perfil '{profile.name}' ({len(profile.modules)} módulos)")
-        queue   = self._build_profile_queue(profile)
+        log.info(f"Aplicando perfil '{profile.name}' ({len(profile.modules)} módulos, "
+                 f"strict={strict})")
+        queue   = self._build_profile_queue(profile, strict=strict)
         results = []
 
         for i, (mid, script, enable) in enumerate(queue):
@@ -148,14 +154,16 @@ class Controller:
         profile_id: str,
         on_step: Callable[[ExecResult, int, int], None],
         on_done: Callable[[List[ExecResult]], None],
+        strict: bool = False,
     ) -> None:
-        """Aplica un perfil en hilo daemon, ideal para GUI."""
+        """Aplica un perfil en hilo daemon, ideal para GUI.
+        Misma semántica aditivo/strict que apply_profile()."""
         import threading
         profile = self.profiles.by_id(profile_id)
         if not profile:
             raise ValueError(f"Perfil no encontrado: {profile_id}")
 
-        queue = self._build_profile_queue(profile)
+        queue = self._build_profile_queue(profile, strict=strict)
         results: List[ExecResult] = []
         total = len(queue)
 
@@ -168,7 +176,7 @@ class Controller:
                     break
             on_done(results)
 
-        threading.Thread(target=_run, daemon=True, name="lt-profile").start()
+        threading.Thread(target=_run, daemon=True, name="lockd-profile").start()
 
     # ── Niveles de seguridad ──────────────────────────────────────────────
 
@@ -240,12 +248,52 @@ class Controller:
             return None
         return self.executor.run(mod.id, script, enable)
 
-    def _build_profile_queue(self, profile: Profile):
-        """Construye la cola de tareas para un perfil: activa los incluidos, desactiva los demás."""
+    def _build_profile_queue(self, profile: Profile, strict: bool = False):
+        """
+        Construye la cola de tareas para un perfil.
+
+        Modo ADITIVO (default): encola enable para los módulos del perfil,
+        en el ORDEN declarado en el YAML. No toca nada fuera del perfil.
+
+        Modo STRICT (opt-in): además, encola disable para los módulos fuera
+        del perfil cuyo estado registrado sea 'enabled' — es decir, SOLO los
+        que Lockd activó. Nunca ejecuta disable sobre módulos en estado
+        unknown/disabled/error: correr disable.sh "por las dudas" puede
+        destruir configuración que el usuario hizo por su cuenta (ej. apagar
+        un fail2ban que Lockd jamás instaló).
+        """
         queue = []
-        for mid, mod in self._mod_map.items():
-            enable = mid in profile.modules
-            script = mod.enable_script if enable else mod.disable_script
+
+        # 1) Activar lo incluido, respetando el orden del perfil
+        for mid in profile.modules:
+            mod = self._mod_map.get(mid)
+            if not mod:
+                log.warning(f"Perfil '{profile.id}': módulo desconocido '{mid}' — omitido")
+                continue
+            script = mod.enable_script
             if script and script.exists():
-                queue.append((mid, script, enable))
+                queue.append((mid, script, True))
+
+        # 2) Solo en strict: desactivar lo que Lockd activó y el perfil no incluye
+        if strict:
+            for mid, mod in self._mod_map.items():
+                if mid in profile.modules:
+                    continue
+                if self.state.get(mid) != "enabled":
+                    continue
+                script = mod.disable_script
+                if script and script.exists():
+                    queue.append((mid, script, False))
+
+        skipped = [
+            mid for mid in self._mod_map
+            if mid not in profile.modules
+            and not any(q[0] == mid for q in queue)
+        ]
+        log.info(
+            f"Cola de perfil '{profile.id}' (strict={strict}): "
+            f"{sum(1 for q in queue if q[2])} enable, "
+            f"{sum(1 for q in queue if not q[2])} disable, "
+            f"{len(skipped)} sin tocar"
+        )
         return queue

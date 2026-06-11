@@ -4,16 +4,20 @@
   "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <vendor>Lockd Project</vendor>
-  <vendor_url>https://github.com/lockd/lockd</vendor_url>
+  <vendor_url>https://gitlab.com/Ricardo23B/Lockd</vendor_url>
   <action id="io.github.lockd.run-module">
-    <description>Ejecutar script de módulo de seguridad</description>
+    <description>Ejecutar módulo de seguridad de Lockd</description>
+    <description xml:lang="en">Run a Lockd security module</description>
     <message>Lockd requiere contraseña de administrador para aplicar esta configuración de seguridad del sistema.</message>
+    <message xml:lang="en">Lockd requires the administrator password to apply this system security configuration.</message>
     <icon_name>security-high</icon_name>
     <defaults>
-      <allow_any>auth_admin</allow_any>
-      <allow_inactive>auth_admin</allow_inactive>
-      <allow_active>auth_admin</allow_active>
+      <!-- auth_admin_keep: una autenticación vale por unos minutos.
+           Aplicar un perfil (hasta 16 módulos) = UN prompt, no dieciséis. -->
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
     </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/lockd-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/lockd/lockd-helper</annotate>
   </action>
 </policyconfig>

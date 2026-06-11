@@ -3,12 +3,22 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/../_common.sh"
-
+check_root
 
 TIMER_FILE="/etc/systemd/system/lockd-clamav.timer"
 SERVICE_FILE="/etc/systemd/system/lockd-clamav.service"
 SCAN_LOG="/var/log/lockd/clamav_scan.log"
 QUARANTINE_DIR="/var/quarantine/lockd"
+
+# DRY-RUN antes de cualquier instalación o cambio
+if [ "$DRY_RUN" = "1" ]; then
+    warn "[DRY-RUN] Would: apt-get install clamav clamav-daemon clamav-freshclam (si falta)"
+    warn "[DRY-RUN] Would: mkdir $QUARANTINE_DIR y /var/log/lockd"
+    warn "[DRY-RUN] Would: freshclam (actualizar firmas)"
+    warn "[DRY-RUN] Would: crear $SERVICE_FILE y $TIMER_FILE"
+    warn "[DRY-RUN] Would: systemctl enable --now lockd-clamav.timer"
+    exit 0
+fi
 
 info "Verificando instalación de ClamAV..."
 

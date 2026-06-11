@@ -1,4 +1,4 @@
-# Cómo crear un módulo para LockToggle
+# Cómo crear un módulo para Lockd
 
 > **Note:**
 
@@ -39,17 +39,20 @@ source "$(dirname "$0")/../_common.sh"
 
 # Verificaciones previas
 check_root
-check_cmd mi_herramienta    # verifica que el binario existe
 
 BACKUP_DIR="${BACKUP_BASE}/mi_modulo"
 MI_CONF="/etc/mi_archivo.conf"
 
-# Dry-run: mostrar qué haría sin hacer nada
+# Dry-run: SIEMPRE antes de check_cmd y de cualquier efecto.
+# _common.sh activa DRY_RUN si el script recibe el argumento --dry-run
+# (canal que usa el Executor a través de pkexec) o la variable DRY_RUN=1.
 if [ "$DRY_RUN" = "1" ]; then
     warn "[DRY-RUN] Would modify $MI_CONF"
     warn "[DRY-RUN] Would restart mi_servicio"
     exit 0
 fi
+
+check_cmd mi_herramienta    # verifica que el binario existe
 
 # Backup del archivo antes de modificar
 mkdir -p "$BACKUP_DIR"
@@ -57,7 +60,7 @@ backup "$MI_CONF" mi_modulo
 
 # Lógica principal
 cat >> "$MI_CONF" << 'CONF'
-# LockToggle — Mi configuración
+# Lockd — Mi configuración
 MiOpcion = valor
 CONF
 
@@ -148,19 +151,20 @@ grep -q "MiOpcion = valor" /etc/mi_archivo.conf 2>/dev/null && exit 0 || exit 1
 ## Paso 6: Probar
 
 ```bash
-# Test de scripts directamente
-sudo DRY_RUN=1 bash modules/mi_modulo/enable.sh   # simulación
+# Test de scripts directamente (dos canales equivalentes)
+sudo bash modules/mi_modulo/enable.sh --dry-run   # simulación (argumento — el que usa Lockd)
+sudo DRY_RUN=1 bash modules/mi_modulo/enable.sh   # simulación (variable de entorno)
 sudo bash modules/mi_modulo/enable.sh             # real
 sudo bash modules/mi_modulo/check.sh; echo $?     # 0 = activo
 sudo bash modules/mi_modulo/disable.sh            # revertir
 
 # Test desde CLI
-python3 locktoggle.py info mi_modulo
-python3 locktoggle.py simulate mi_modulo
-python3 locktoggle.py enable mi_modulo
+python3 lockd.py info mi_modulo
+python3 lockd.py simulate mi_modulo
+python3 lockd.py enable mi_modulo
 
 # Verificar en GUI — el toggle aparece automáticamente
-python3 locktoggle.py
+python3 lockd.py
 ```
 
 ---
@@ -173,7 +177,7 @@ python3 locktoggle.py
 # En vez de editar /etc/ssh/sshd_config:
 mkdir -p /etc/ssh/sshd_config.d
 cat > /etc/ssh/sshd_config.d/99-mi-modulo.conf << 'CONF'
-# LockToggle — Mi configuración SSH
+# Lockd — Mi configuración SSH
 MaxAuthTries 3
 CONF
 ```
@@ -199,7 +203,7 @@ source "$(dirname "$0")/../_common.sh"
 
 check_root         # verifica root, sale si da no
 check_cmd gcc      # verifica que gcc existe, sale si no
-backup /etc/foo bar_module    # crea backup en /var/lib/locktoggle/backups/bar_module/
+backup /etc/foo bar_module    # crea backup en /var/lib/lockd/backups/bar_module/
 restore /etc/foo bar_module   # restaura desde backup
 apply "Descripción" comando arg1 arg2   # ejecuta o muestra en dry-run
 ```

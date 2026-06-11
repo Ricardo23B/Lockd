@@ -18,10 +18,29 @@ from typing import Callable, Optional
 from src.engine.state_runtime import StateManager
 
 log           = logging.getLogger("lockd.executor")
-TIMEOUT       = 120     # segundos máximo por script
+TIMEOUT        = 120    # segundos máximo por script (modo legacy)
+# El helper tiene su propio timeout de 600s (módulos que instalan paquetes,
+# ej. clamav); acá solo un margen por encima de ese.
+HELPER_TIMEOUT = 660
 CANCEL_CODE   = 126     # pkexec retorna 126 si usuario cancela
 # workaround: polkit behaves differently on Mint and some Ubuntu derivatives
 # cancel code is sometimes 127 there — needs investigation
+
+# Rutas donde el .deb / instalación local dejan el helper privilegiado.
+# Si existe, TODA operación root pasa por él (script root-owned + journal +
+# auth_admin_keep = un solo prompt por sesión). Si no existe (checkout de
+# desarrollo), se cae al modo legacy: pkexec sobre el script directo.
+HELPER_PATHS = (
+    Path("/usr/libexec/lockd/lockd-helper"),
+    Path("/usr/local/libexec/lockd/lockd-helper"),
+)
+
+
+def _find_helper() -> Optional[Path]:
+    for p in HELPER_PATHS:
+        if p.is_file():
+            return p
+    return None
 
 
 @dataclass
@@ -57,7 +76,19 @@ class Executor:
         self._state   = state_mgr
         self._dry_run = dry_run
         self._tool    = _find_pkexec()
-        log.info(f"Executor listo (dry_run={dry_run}, tool={self._tool or 'N/A'})")
+        self._helper  = _find_helper()
+        if not self._helper:
+            log.warning(
+                "lockd-helper no instalado — modo legacy: pkexec ejecutará los "
+                "scripts directamente (sin journal, un prompt por script). "
+                "Instalación recomendada: el paquete .deb, o copiar "
+                "helper/lockd-helper a /usr/local/libexec/lockd/ junto con los "
+                "módulos en /usr/local/lib/lockd/modules/."
+            )
+        log.info(
+            f"Executor listo (dry_run={dry_run}, tool={self._tool or 'N/A'}, "
+            f"helper={self._helper or 'legacy'})"
+        )
 
     @property
     def dry_run(self) -> bool:
@@ -91,7 +122,7 @@ class Executor:
             target=self._thread,
             args=(module_id, script, enable, on_complete),
             daemon=True,
-            name=f"lt-{module_id[:12]}-{'en' if enable else 'dis'}",
+            name=f"lockd-{module_id[:12]}-{'en' if enable else 'dis'}",
         )
         t.start()
 
@@ -110,26 +141,43 @@ class Executor:
 
         if not self._tool:
             return fail("pkexec no disponible. Instalar: apt install policykit-1")
-        if not script or not script.exists():
-            return fail(f"Script no encontrado: {script}")
-        if not os.access(script, os.X_OK):
-            return fail(
-                f"Sin permisos de ejecución: {script}\n"
-                f"Corregir con: chmod +x {script}"
-            )
 
+        if self._helper:
+            # Modo helper: el script lo resuelve el lado privilegiado desde
+            # una ruta root-owned, según modules.yaml. El path local solo se
+            # usó para validaciones de UI; no viaja al helper.
+            cmd = [self._tool, str(self._helper), action, module_id]
+            if self._dry_run:
+                cmd.append("--dry-run")
+        else:
+            # Modo legacy (checkout de desarrollo, sin helper instalado)
+            if not script or not script.exists():
+                return fail(f"Script no encontrado: {script}")
+            if not os.access(script, os.X_OK):
+                return fail(
+                    f"Sin permisos de ejecución: {script}\n"
+                    f"Corregir con: chmod +x {script}"
+                )
+            cmd = [self._tool, str(script)]
+            if self._dry_run:
+                cmd.append("--dry-run")
+
+        # pkexec ejecuta el programa en un entorno mínimo y saneado: las
+        # variables del invocante (incluida DRY_RUN) NO llegan al hijo.
+        # Por eso el dry-run viaja como ARGUMENTO en ambos modos. La variable
+        # de entorno se mantiene solo como redundancia documentada.
         env = {**os.environ, **({"DRY_RUN": "1"} if self._dry_run else {})}
-        cmd = [self._tool, str(script)]
 
         log.info(f"{'[DRY] ' if self._dry_run else ''}{action}: {module_id}")
 
         try:
             proc = subprocess.run(
                 cmd, capture_output=True, text=True,
-                timeout=TIMEOUT, env=env,
+                timeout=HELPER_TIMEOUT if self._helper else TIMEOUT, env=env,
             )
         except subprocess.TimeoutExpired:
-            return fail(f"Timeout: el script tardó más de {TIMEOUT}s.")
+            return fail("Timeout: el script tardó más de "
+                        f"{HELPER_TIMEOUT if self._helper else TIMEOUT}s.")
         except FileNotFoundError as e:
             return fail(str(e))
 

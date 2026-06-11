@@ -232,7 +232,17 @@ def cmd_profile(ctrl, args):
         sys.exit(1)
 
     print(f"  {bold(profile.name)}: {profile.description}")
-    print(f"  Módulos: {', '.join(profile.modules) or '(ninguno)'}\n")
+    print(f"  Módulos: {', '.join(profile.modules) or '(ninguno)'}")
+    if args.strict:
+        to_disable = [
+            mid for mid in (m.id for m in ctrl.modules)
+            if mid not in profile.modules and ctrl.state.get(mid) == "enabled"
+        ]
+        if to_disable:
+            print(ylw(f"  --strict: se DESACTIVARÁN además: {', '.join(to_disable)}"))
+        else:
+            print(dim("  --strict: nada que desactivar (ningún módulo activo fuera del perfil)"))
+    print()
 
     if not args.yes:
         resp = input("  ¿Aplicar perfil? (s/N): ").strip().lower()
@@ -244,7 +254,7 @@ def cmd_profile(ctrl, args):
         icon = grn("✓") if (r.ok or r.dry_run) else red("✗") if not r.cancelled else ylw("↩")
         print(f"  [{n:2}/{total}] {icon} {r.module_id}")
 
-    results = ctrl.apply_profile(args.profile_id, on_step=on_step)
+    results = ctrl.apply_profile(args.profile_id, on_step=on_step, strict=args.strict)
     ok  = sum(1 for r in results if r.ok or r.dry_run)
     err = sum(1 for r in results if not r.ok and not r.cancelled)
     print(f"\n  {grn('✓')} {ok} OK  {red('✗')} {err} errores de {len(results)} módulos")
@@ -413,6 +423,9 @@ Ejemplos:
     pf = sub.add_parser("profile", help="Aplica un perfil de seguridad")
     pf.add_argument("profile_id", metavar="PROFILE_ID")
     pf.add_argument("--yes", "-y", action="store_true")
+    pf.add_argument("--strict", action="store_true",
+                    help="Además de activar el perfil, desactiva los módulos "
+                         "fuera de él que Lockd haya activado antes")
     sub.add_parser("profiles", help="Lista perfiles disponibles")
 
     # level / levels

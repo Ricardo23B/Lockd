@@ -1,4 +1,4 @@
-# Arquitectura de LockToggle v0.3
+# Arquitectura de Lockd
 
 ## Visión general
 
@@ -42,7 +42,7 @@
             ┌──────────▼──────────┐
             │    Módulos Bash     │
             │  enable.sh          │
-            │  disable.sh  ──────→│ /var/lib/locktoggle/backups/
+            │  disable.sh  ──────→│ /var/lib/lockd/backups/
             │  check.sh           │
             └─────────────────────┘
 ```
@@ -113,7 +113,7 @@ vuelve al hilo GTK vía `GLib.idle_add()` — si no, GTK explota.
 | `profile_ctx.py` | Carga `profiles/*.yaml` y devuelve `List[Profile]`. Validación todavía básica. |
 | `level_manager.py` | Calcula los módulos acumulativos por nivel (basic→advanced→expert→paranoid) leyendo el campo `security_level` de cada módulo. |
 | `distro_detector.py` | Lee `/etc/os-release`. Normaliza el id. Cubre Ubuntu, Debian y derivadas. |
-| `logger.py` | Escribe en `/var/log/locktoggle.log` con fallback a `~/.config/` si no hay permisos. |
+| `logger.py` | Escribe en `/var/log/lockd.log` con fallback a `~/.config/` si no hay permisos. |
 
 ### app/
 
@@ -143,7 +143,7 @@ vuelve al hilo GTK vía `GLib.idle_add()` — si no, GTK explota.
 - **pkexec** maneja la autenticación — la app nunca ve la contraseña ni el token
 - Los scripts reciben `DRY_RUN=1` en el entorno del proceso hijo, no como argumento
 - El controller nunca ejecuta código privilegiado directamente
-- Backups automáticos en `/var/lib/locktoggle/backups/<module_id>/` antes de cada cambio
+- Backups automáticos en `/var/lib/lockd/backups/<module_id>/` antes de cada cambio
 - `disable.sh` siempre restaura desde backup — no reconstruye el estado a mano
 - Estado escrito como `tmp → rename` para evitar archivos corruptos si el proceso muere a mitad
 - `threading.Lock()` en el StateManager porque GUI y CLI pueden correr módulos en paralelo

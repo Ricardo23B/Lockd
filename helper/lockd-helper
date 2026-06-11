@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""
+lockd-helper — único punto de entrada privilegiado de Lockd.
+
+Invocado SIEMPRE a través de pkexec con la acción Polkit
+`io.github.lockd.run-module` (ver packaging/polkit/io.github.lockd.policy):
+
+    pkexec /usr/libexec/lockd/lockd-helper enable hardened_ssh_config [--dry-run]
+
+Responsabilidades:
+  1. Frontera de seguridad: resuelve el script del módulo desde un directorio
+     ROOT-OWNED y verifica que ni el directorio, ni modules.yaml, ni el script
+     sean escribibles por usuarios no privilegiados. Nunca ejecuta nada que
+     el invocante sin privilegios pueda haber modificado.
+  2. Journal: registra cada operación (inicio y resultado) en
+     /var/lib/lockd/journal.jsonl — una línea JSON por evento, append-only.
+     Este journal es la base del rollback futuro.
+  3. Contexto de operación: exporta LOCKD_OP_ID y LOCKD_MANIFEST al script,
+     para que backup() (en _common.sh) asocie cada backup a la operación
+     que lo generó.
+
+Códigos de salida propios (los del script se propagan tal cual):
+  64 uso inválido · 65 módulo desconocido · 66 ruta insegura · 67 script ausente
+"""
+import argparse
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+# ── Constantes ──────────────────────────────────────────────────────────────
+EX_USAGE, EX_UNKNOWN_MODULE, EX_INSECURE_PATH, EX_NO_SCRIPT = 64, 65, 66, 67
+
+# Directorios candidatos donde puede vivir el catálogo de módulos.
+# Orden de búsqueda: instalación de paquete, instalación local.
+DEFAULT_MODULE_DIRS = [
+    Path("/usr/lib/lockd/modules"),
+    Path("/usr/local/lib/lockd/modules"),
+]
+
+STATE_DIR    = Path("/var/lib/lockd")
+JOURNAL_FILE = STATE_DIR / "journal.jsonl"
+MANIFEST_DIR = STATE_DIR / "manifests"
+
+MODULE_ID_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+SCRIPT_KEY   = {"enable": "enable_script", "disable": "disable_script"}
+TIMEOUT      = 600  # los scripts pueden instalar paquetes (clamav)
+
+
+# ── Seguridad de rutas ──────────────────────────────────────────────────────
+def _assert_root_owned(path: Path) -> None:
+    """
+    Falla si `path` puede ser modificado por un usuario no privilegiado:
+    debe pertenecer a root y no ser escribible por grupo ni otros.
+    Razón: este helper corre como root; ejecutar contenido controlable por
+    el invocante convertiría a Lockd en un vector de escalación local.
+    """
+    st = path.lstat()
+    if stat.S_ISLNK(st.st_mode):
+        _die(EX_INSECURE_PATH, f"Ruta insegura (symlink): {path}")
+    if st.st_uid != 0:
+        _die(EX_INSECURE_PATH, f"Ruta insegura (no pertenece a root): {path}")
+    if st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        _die(EX_INSECURE_PATH, f"Ruta insegura (escribible por grupo/otros): {path}")
+
+
+def _secure_modules_dir(override: str | None) -> Path:
+    candidates = [Path(override)] if override else DEFAULT_MODULE_DIRS
+    for d in candidates:
+        if d.is_dir():
+            d = d.resolve()
+            _assert_root_owned(d)
+            _assert_root_owned(d / "modules.yaml")
+            return d
+    _die(EX_INSECURE_PATH,
+         "No se encontró un directorio de módulos válido. "
+         f"Buscado en: {', '.join(str(c) for c in candidates)}. "
+         "¿Está Lockd instalado? (los módulos deben vivir en una ruta root-owned)")
+
+
+def _resolve_script(modules_dir: Path, module_id: str, action: str) -> Path:
+    import yaml  # python3-yaml ya es dependencia del paquete
+    try:
+        data = yaml.safe_load((modules_dir / "modules.yaml").read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        _die(EX_INSECURE_PATH, f"modules.yaml inválido: {e}")
+
+    entry = next(
+        (m for m in (data or {}).get("modules", []) if m.get("id") == module_id),
+        None,
+    )
+    if entry is None:
+        _die(EX_UNKNOWN_MODULE, f"Módulo desconocido: '{module_id}'")
+
+    rel = entry.get(SCRIPT_KEY[action])
+    if not rel:
+        _die(EX_NO_SCRIPT, f"'{module_id}' no define {SCRIPT_KEY[action]}")
+
+    script = (modules_dir / rel).resolve()
+    # el script debe seguir DENTRO del directorio de módulos (sin ../ escapes)
+    if modules_dir not in script.parents:
+        _die(EX_INSECURE_PATH, f"Script fuera del directorio de módulos: {script}")
+    if not script.is_file():
+        _die(EX_NO_SCRIPT, f"Script no encontrado: {script}")
+    _assert_root_owned(script)
+    return script
+
+
+# ── Journal ─────────────────────────────────────────────────────────────────
+def _journal(event: dict) -> None:
+    """Append de una línea JSON. Best-effort: un fallo de journal no debe
+    abortar la operación, pero sí quedar visible en stderr."""
+    try:
+        STATE_DIR.mkdir(mode=0o750, parents=True, exist_ok=True)
+        line = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+        with open(JOURNAL_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+    except OSError as e:
+        print(f"[lockd-helper] WARNING: no se pudo escribir el journal: {e}",
+              file=sys.stderr)
+
+
+def _die(code: int, msg: str) -> None:
+    print(f"[lockd-helper] ERROR: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+def main() -> int:
+    p = argparse.ArgumentParser(prog="lockd-helper", add_help=True)
+    p.add_argument("action", choices=("enable", "disable"))
+    p.add_argument("module_id")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--modules-dir", default=None,
+                   help="Override del directorio de módulos (debe ser root-owned). "
+                        "Pensado para instalaciones no estándar y tests.")
+    try:
+        args = p.parse_args()
+    except SystemExit:
+        return EX_USAGE
+
+    if os.geteuid() != 0:
+        _die(EX_USAGE, "Debe ejecutarse como root (vía pkexec).")
+    if not MODULE_ID_RE.match(args.module_id):
+        _die(EX_USAGE, f"module_id inválido: '{args.module_id}'")
+
+    modules_dir = _secure_modules_dir(args.modules_dir)
+    script      = _resolve_script(modules_dir, args.module_id, args.action)
+
+    op_id = f"{time.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    MANIFEST_DIR.mkdir(mode=0o750, parents=True, exist_ok=True)
+    manifest = MANIFEST_DIR / f"{op_id}.manifest"
+
+    # pkexec ya nos entregó un entorno saneado; armamos uno mínimo y explícito.
+    # Como nosotros invocamos el script DIRECTAMENTE (sin un segundo pkexec),
+    # estas variables SÍ llegan al script.
+    env = {
+        "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        "HOME": "/root",
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+        "LOCKD_OP_ID":    op_id,
+        "LOCKD_MANIFEST": str(manifest),
+        **({"DRY_RUN": "1"} if args.dry_run else {}),
+    }
+    cmd = ["/bin/bash", str(script)] + (["--dry-run"] if args.dry_run else [])
+
+    caller_uid = os.environ.get("PKEXEC_UID", "")  # uid real del usuario que autenticó
+    base = {
+        "op_id":   op_id,
+        "module":  args.module_id,
+        "action":  args.action,
+        "dry_run": args.dry_run,
+        "script":  str(script),
+        "caller_uid": caller_uid,
+    }
+    _journal({**base, "event": "start", "ts": time.time()})
+
+    try:
+        proc = subprocess.run(cmd, env=env, timeout=TIMEOUT)
+        rc = proc.returncode
+    except subprocess.TimeoutExpired:
+        _journal({**base, "event": "result", "ts": time.time(),
+                  "ok": False, "rc": -1, "error": f"timeout {TIMEOUT}s"})
+        _die(1, f"Timeout: el script superó {TIMEOUT}s")
+
+    _journal({**base, "event": "result", "ts": time.time(),
+              "ok": rc == 0, "rc": rc,
+              "manifest": str(manifest) if manifest.exists() else None})
+
+    # manifiesto vacío (operación sin backups o dry-run): no dejar basura
+    if manifest.exists() and manifest.stat().st_size == 0:
+        manifest.unlink(missing_ok=True)
+
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
