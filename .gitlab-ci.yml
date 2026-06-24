@@ -62,25 +62,27 @@ test:python313:
   variables:
     PYTHON_VERSION: "3.13"
 
+
 build:deb:
   stage: build
-  image:
-    name: parrotsec/core:rolling
-    entrypoint: [""]
+  image: debian:trixie-slim
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
   before_script:
     - apt-get update -qq
-    - apt-get install -y -qq --no-install-recommends
+    - apt-get install -y -qq --no-install-recommends build-essential
         debhelper dh-python pybuild-plugin-pyproject
         python3-all python3-setuptools dpkg-dev lintian git
+    - rm -rf "$CI_PROJECT_DIR/.pip-cache"
   script:
-    # Versión upstream tomada del changelog (misma fuente que dpkg-buildpackage)
     - UPSTREAM_VERSION=$(dpkg-parsechangelog -S Version | sed 's/-[^-]*$//')
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
-    # orig-tarball sin debian/ (excluido vía .gitattributes export-ignore)
-    - git archive --prefix="lockd-${UPSTREAM_VERSION}/"
-        -o "../lockd_${UPSTREAM_VERSION}.orig.tar.gz" HEAD
-    # build fuente + binario; el source package es lo que Parrot necesita
+    - git archive --prefix="lockd-${UPSTREAM_VERSION}/" -o "../lockd_${UPSTREAM_VERSION}.orig.tar.gz" HEAD
     - dpkg-buildpackage -us -uc
-    - lintian --fail-on error,warning ../lockd
+    - lintian --fail-on error,warning ../lockd_*.deb
+    - mkdir -p debs && cp ../lockd_* ../lockd-gtk_* debs/
+  artifacts:
+    name: "lockd-$CI_COMMIT_TAG"
+    paths:
+      - debs/
+    expire_in: 90 days
