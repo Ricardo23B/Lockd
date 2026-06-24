@@ -1,8 +1,8 @@
-lockd (1.0.1-0parrot1) echo; urgency=medium
+lockd (1.0.2-0parrot1) echo; urgency=medium
 
-  * Initial Parrot OS packaging.
+  * Initial Parrot OS packaging
   * Migrate from manual CI packaging to debhelper/pybuild.
   * Split into lockd (engine, CLI, modules, privileged helper, Polkit
-    policy) and lockd-gtk (GTK4/libadwaita interface).
+  policy) and lockd-gtk (GTK4/libadwaita interface).
 
- -- Ricardo Borda <ricabj23@gmail.com>  Tue, 23 Jun 2026 08:38:07 -0300
+ -- r23 <r23@parrot>  Tue, 23 Jun 2026 23:13:03 -0300
