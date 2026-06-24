@@ -1,0 +1,3 @@
+usr/lib/python3*/dist-packages/lockd/interfaces/gui
+packaging/desktop/io.github.lockd.desktop   usr/share/applications/
+packaging/icons/hicolor                     usr/share/icons/

@@ -1,0 +1,57 @@
+Source: lockd
+Section: admin
+Priority: optional
+Maintainer: Ricardo Borda <ricabj23@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-sequence-python3,
+               pybuild-plugin-pyproject,
+               python3-all,
+               python3-setuptools
+Standards-Version: 4.7.2
+Homepage: https://gitlab.com/Ricardo23B/Lockd
+Vcs-Git: https://gitlab.com/Ricardo23B/Lockd.git
+Vcs-Browser: https://gitlab.com/Ricardo23B/Lockd
+Rules-Requires-Root: no
+
+Package: lockd
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3-yaml,
+         pkexec
+Recommends: lockd-gtk
+Suggests: ufw,
+          fail2ban,
+          apparmor,
+          openssh-server,
+          unattended-upgrades,
+          clamav,
+          clamav-daemon
+Description: modular security hardening tool for Linux
+ Lockd applies and audits security hardening measures on Debian and Ubuntu
+ systems through self-contained modules: firewall, SSH hardening, kernel
+ sysctl tuning, filesystem mount restrictions, SUID auditing and more.
+ Modules are grouped into cumulative security levels and reusable profiles.
+ .
+ All privileged actions run through a single audited helper invoked via
+ Polkit, which records every operation to an append-only journal.
+ .
+ This package provides the engine, the command-line interface, the module
+ catalogue and the privileged helper. For the graphical interface install
+ lockd-gtk.
+
+Package: lockd-gtk
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         lockd (= ${binary:Version}),
+         python3-gi,
+         gir1.2-gtk-4.0,
+         gir1.2-adw-1
+Description: modular security hardening tool for Linux - GTK interface
+ Lockd applies and audits security hardening measures on Debian and Ubuntu
+ systems through self-contained modules grouped into cumulative security
+ levels and reusable profiles.
+ .
+ This package provides the GTK4/libadwaita graphical interface. The engine
+ and command-line tools are provided by the lockd package.

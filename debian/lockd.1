@@ -1,0 +1,71 @@
+.TH LOCKD 1 "2026-06-23" "lockd 1.0.1" "User Commands"
+.SH NAME
+lockd \- modular security hardening tool for Linux
+.SH SYNOPSIS
+.B lockd
+[\fB\-\-gui\fR|\fB\-\-cli\fR|\fB\-\-no\-gui\fR] [\fB\-\-dry\-run\fR] [\fICOMMAND\fR] [\fIARGS\fR]
+.SH DESCRIPTION
+.B lockd
+applies and audits security hardening measures on Debian and Ubuntu systems
+through self\-contained modules grouped into cumulative security levels and
+reusable profiles. Privileged actions are performed by a single audited helper
+invoked via Polkit.
+.PP
+With no command and a graphical session available, lockd launches its GTK
+interface (provided by the \fBlockd\-gtk\fR package); otherwise it runs the
+command\-line interface.
+.SH COMMANDS
+.TP
+.B scan
+Audit the current security posture of the system.
+.TP
+.B list
+List available hardening modules.
+.TP
+.B status
+Show the state of each module.
+.TP
+.B enable \fIMODULE\fR
+Enable a hardening module.
+.TP
+.B disable \fIMODULE\fR
+Disable a hardening module.
+.TP
+.B simulate
+Show what would change without applying anything.
+.TP
+.B profile \fIID\fR, profiles
+Apply a security profile, or list the available profiles.
+.TP
+.B level \fIID\fR, levels
+Apply a cumulative security level, or list the available levels.
+.TP
+.B info \fIMODULE\fR
+Show detailed information about a module.
+.SH OPTIONS
+.TP
+.B \-\-gui
+Force the graphical interface.
+.TP
+.B \-\-cli, \-\-no\-gui
+Force the command\-line interface.
+.TP
+.B \-\-dry\-run
+Resolve and report actions without modifying the system.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH FILES
+.TP
+.I /usr/lib/lockd/modules
+Hardening module catalogue and scripts.
+.TP
+.I /usr/lib/lockd/profiles
+Security profile definitions.
+.TP
+.I /var/lib/lockd/journal.jsonl
+Append\-only journal of privileged operations.
+.SH SEE ALSO
+.BR pkexec (1)
+.SH AUTHOR
+Ricardo Borda <ricabj23@gmail.com>

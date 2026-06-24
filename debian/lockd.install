@@ -1,0 +1,11 @@
+usr/bin/lockd
+usr/lib/python3*/dist-packages/lockd/*.py
+usr/lib/python3*/dist-packages/lockd/app
+usr/lib/python3*/dist-packages/lockd/engine
+usr/lib/python3*/dist-packages/lockd/interfaces/*.py
+usr/lib/python3*/dist-packages/lockd/interfaces/cli
+usr/lib/python3*/dist-packages/lockd-*.dist-info
+modules         usr/lib/lockd/
+profiles        usr/lib/lockd/
+helper/lockd-helper                       usr/libexec/lockd/
+packaging/polkit/io.github.lockd.policy   usr/share/polkit-1/actions/

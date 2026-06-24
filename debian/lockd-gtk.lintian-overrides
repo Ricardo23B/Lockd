@@ -1,0 +1,4 @@
+# lockd-gtk depende de lockd (= ${binary:Version}), que instala /usr/bin/lockd.
+# El comando Exec del .desktop está disponible en runtime vía esa dependencia;
+# vive en otro binario a propósito (separación core/GUI).
+lockd-gtk: desktop-command-not-in-package lockd [usr/share/applications/io.github.lockd.desktop]

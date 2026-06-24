@@ -62,7 +62,8 @@ modules:
     enable_script: "install_fail2ban/enable.sh"
     disable_script: "install_fail2ban/disable.sh"
     check_script: "install_fail2ban/check.sh"
-    dependencies: []
+    self_installing: true
+    dependencies: [fail2ban]
     supported_distros: [debian, ubuntu]
 
   # ── FILESYSTEM ───────────────────────────────────────────────────────────
@@ -286,6 +287,7 @@ modules:
     enable_script: "apparmor_enforce_mode/enable.sh"
     disable_script: "apparmor_enforce_mode/disable.sh"
     check_script: "apparmor_enforce_mode/check.sh"
+    self_installing: true
     dependencies: [apparmor]
     supported_distros: [debian, ubuntu]
 

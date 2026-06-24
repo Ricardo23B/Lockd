@@ -60,7 +60,7 @@ def _find_pkexec() -> Optional[str]:
     tool = shutil.which("pkexec")
     if not tool:
         print("[lockd] pkexec not found — privilege escalation will fail")
-        log.warning("pkexec no encontrado. Instalar polkit: apt install policykit-1")
+        log.warning("pkexec no encontrado. Instalar polkit: apt install pkexec")
     return tool
 
 
@@ -140,7 +140,7 @@ class Executor:
             return ExecResult(False, module_id, action, "", msg, rc, error_msg=msg)
 
         if not self._tool:
-            return fail("pkexec no disponible. Instalar: apt install policykit-1")
+            return fail("pkexec no disponible. Instalar: apt install pkexec")
 
         if self._helper:
             # Modo helper: el script lo resuelve el lado privilegiado desde

@@ -8,6 +8,7 @@ habilitar/deshabilitar módulos, ejecutar scan.
 Tanto la GUI como la CLI delegan en este controlador.
 """
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -22,9 +23,23 @@ from lockd.engine.distro_detector import detect as detect_distro
 
 log = logging.getLogger("lockd.ctrl")
 
-APP_DIR      = Path(__file__).resolve().parent.parent.parent
-MODULES_DIR  = APP_DIR / "modules"
-PROFILES_DIR = APP_DIR / "profiles"
+def _data_dirs() -> tuple[Path, Path]:
+    """Localiza modules/ y profiles/.
+
+    Dev (checkout): viven en la raíz del repo, junto a este paquete.
+    Instalado: ruta FHS root-owned — la misma que valida el helper
+    privilegiado (/usr/lib/lockd/modules). LOCKD_DATA_DIR permite reubicar
+    en otras distros sin parchear; el helper NO lee esa variable (su
+    frontera de seguridad nunca depende del entorno).
+    """
+    dev_root = Path(__file__).resolve().parent.parent.parent
+    if (dev_root / "modules" / "modules.yaml").is_file():
+        return dev_root / "modules", dev_root / "profiles"
+    root = Path(os.environ.get("LOCKD_DATA_DIR", "/usr/lib/lockd"))
+    return root / "modules", root / "profiles"
+
+
+MODULES_DIR, PROFILES_DIR = _data_dirs()
 STATE_FILE   = Path.home() / ".config" / "lockd" / "state.json"
 
 

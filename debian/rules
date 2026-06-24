@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+# Lockd — paquete Python puro (arch:all), build con pybuild (backend PEP517).
+# dh-sequence-python3 carga el addon python3; pybuild-plugin-pyproject lee
+# pyproject.toml. Con dos paquetes binarios, dh_auto_install usa debian/tmp
+# y los .install reparten core vs GUI.
+
+%:
+	dh $@ --buildsystem=pybuild
+
+override_dh_auto_test:
+	# La suite exercita estado vivo del sistema y el helper privilegiado;
+	# corre en el CI de upstream (GitLab), no en el entorno de build del .deb.
