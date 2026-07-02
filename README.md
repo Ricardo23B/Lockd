@@ -4,63 +4,69 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 
-**Herramienta de hardening para Linux con GUI, CLI y auditoría integrada.**
+🇪🇸 [Versión en español](README.es.md)
 
-Lockd convierte configuraciones de seguridad complejas en interruptores simples,
-accesibles tanto desde un escritorio gráfico, desde CLI o en un servidor remoto vía SSH.
+**Linux hardening tool with GUI, CLI and built-in auditing.**
 
----
+Lockd turns complex security configurations into simple switches, accessible
+from a graphical desktop, from the CLI, or on a remote server over SSH.
 
-## Características
-
-- **Security Scan** con score 0–100 y sugerencias de corrección.
-- **GUI moderna** GTK4 + libadwaita, responsiva, con tema claro/oscuro automático.
-- **TUI interactiva** (curses) para entornos SSH o sin display.
-- **Perfiles predefinidos** que aplican un conjunto de módulos en un paso.
-- **Niveles acumulativos**: Básico → Avanzado → Experto → Paranoico.
-- **Modo Avanzado**: toggles individuales por categoría con detalle de riesgo e impacto.
-- **Dry-run**: simulación completa sin modificar el sistema.
-- **ClamAV** integrado como categoría de módulo (escaneo antivirus opcional).
-- Backups automáticos antes de cada cambio.
-- Operaciones privilegiadas vía **Polkit** (pkexec), nunca sudo hardcodeado.
+> **Note:** development and collaboration happen on
+> [GitLab](https://gitlab.com/Ricardo23B/Lockd). The GitHub repository is a
+> read-only mirror.
 
 ---
 
-## Modos principales
+## Features
+
+- **Security Scan** with a 0–100 score and suggested fixes.
+- **Modern GUI** — GTK4 + libadwaita, responsive, automatic light/dark theme.
+- **Interactive TUI** (curses) for SSH sessions or headless environments.
+- **Predefined profiles** that apply a set of modules in one step.
+- **Cumulative levels**: Basic → Advanced → Expert → Paranoid.
+- **Advanced mode**: individual per-category toggles with risk and impact details.
+- **Dry-run**: full simulation without modifying the system.
+- **ClamAV** integrated as a module category (optional antivirus scanning).
+- Automatic backups before every change.
+- Privileged operations via **Polkit** (pkexec) — never hardcoded sudo.
+
+---
+
+## Main modes
 
 ### 1. Security Scan
 
-Analiza el sistema y devuelve un **Security Score (0–100)** con checks sobre:
-cortafuegos, Fail2ban, SSH, /tmp, /proc, USB, actualizaciones automáticas,
-core dumps, sysctl, AppArmor, puertos abiertos, binarios SUID y más.
+Analyzes the system and returns a **Security Score (0–100)** with checks
+covering: firewall, Fail2ban, SSH, /tmp, /proc, USB, automatic updates,
+core dumps, sysctl, AppArmor, open ports, SUID binaries and more.
 
-### 2. Perfiles
+### 2. Profiles
 
-Aplica una configuración completa con un solo comando:
+Apply a complete configuration with a single command:
 
-| Perfil                    | Módulos incluidos                              |
+| Profile                   | Included modules                               |
 |---------------------------|------------------------------------------------|
 | `home_desktop`            | Firewall, updates, Fail2ban, /tmp, /proc       |
-| `developer_workstation`   | + SSH endurecido, sysctl                       |
-| `server`                  | + USB bloqueado, /dev/shm, AppArmor            |
-| `paranoid`                | Todo + kernel blacklist, SUID, compiladores    |
+| `developer_workstation`   | + hardened SSH, sysctl                         |
+| `server`                  | + USB blocked, /dev/shm, AppArmor              |
+| `paranoid`                | Everything + kernel blacklist, SUID, compilers |
 
-### 3. Modo Avanzado / Niveles
+### 3. Advanced mode / Levels
 
-Activá módulos individuales o aplicá por nivel de hardening:
+Enable individual modules or apply by hardening level:
 
 ```
-Básico    → Firewall + Fail2ban + Updates
-Avanzado  → + SSH + sysctl + /tmp + /proc
-Experto   → + AppArmor + Kernel modules + SUID
-Paranoico → + USB + /dev/shm + Compiladores
+Basic     → Firewall + Fail2ban + Updates
+Advanced  → + SSH + sysctl + /tmp + /proc
+Expert    → + AppArmor + Kernel modules + SUID
+Paranoid  → + USB + /dev/shm + Compilers
 ```
 
 ---
 
-## Requisitos del sistema
+## System requirements
 
-### Paquetes del sistema (GTK/libadwaita/Polkit — no instalables vía pip)
+### System packages (GTK/libadwaita/Polkit — not installable via pip)
 
 ```bash
 sudo apt install \
@@ -69,28 +75,29 @@ sudo apt install \
     libpolkit-gobject-1-0 policykit-1
 ```
 
-### ClamAV (opcional — para módulos de antivirus)
+### ClamAV (optional — for the antivirus modules)
 
 ```bash
-# Instalación del motor y daemon
+# Install the engine and daemon
 sudo apt install clamav clamav-daemon clamav-freshclam
 
-# Actualizar base de firmas (primera vez)
+# Update the signature database (first time)
 sudo freshclam
 
-# Habilitar y arrancar el daemon
+# Enable and start the daemon
 sudo systemctl enable --now clamav-daemon
 sudo systemctl enable --now clamav-freshclam
 
-# Verificar que funciona
+# Verify it works
 clamscan --version
 ```
 
-> **Nota:** Lockd detecta automáticamente si ClamAV está instalado.
-> Los módulos de antivirus aparecen deshabilitados (switch gris) si `clamscan`
-> o `clamav-daemon` no están presentes. No es obligatorio para el resto de la herramienta.
+> **Note:** Lockd automatically detects whether ClamAV is installed.
+> The antivirus modules appear disabled (grey switch) if `clamscan` or
+> `clamav-daemon` are not present. It is not required for the rest of the
+> tool.
 
-### UFW, Fail2ban (recomendados para la mayoría de módulos)
+### UFW, Fail2ban (recommended for most modules)
 
 ```bash
 sudo apt install ufw fail2ban
@@ -98,7 +105,7 @@ sudo apt install ufw fail2ban
 
 ---
 
-## Instalación
+## Installation
 
 ```bash
 git clone https://gitlab.com/Ricardo23B/Lockd.git
@@ -106,191 +113,197 @@ cd Lockd
 bash setup.sh
 ```
 
-`setup.sh` hace todo en un paso: da permisos a los scripts, instala aliases
-en tu shell y detecta si hay pantalla disponible o estás conectado por SSH.
+`setup.sh` does everything in one step: makes the scripts executable,
+installs shell aliases, and detects whether a display is available or you
+are connected over SSH.
 
-1. **Desktop:** abre la GUI directamente.
-2. **SSH / servidor:** muestra un menú interactivo en terminal.
-   En caso de que falle la GUI, el programa cae automáticamente a TUI en CLI.
+1. **Desktop:** opens the GUI directly.
+2. **SSH / server:** shows an interactive terminal menu.
+   If the GUI fails, the program automatically falls back to the TUI.
 
-Para activar los aliases en la sesión actual sin reiniciar:
+To activate the aliases in the current session without restarting:
 
 ```bash
-source ~/.bashrc   # o source ~/.zshrc según tu shell
+source ~/.bashrc   # or source ~/.zshrc depending on your shell
 ```
 
 ---
 
-## Aliases disponibles tras el setup
+## Aliases available after setup
 
-### Lanzador principal
+### Main launcher
 
-| Alias | Qué hace |
-|-------|----------|
-| `lockd` | Detecta el entorno: abre la GUI si hay display, TUI si no. |
-| `lockd-gui` | Fuerza la apertura de la GUI GTK4 (requiere display). |
-| `lockd-tui` | Fuerza la TUI interactiva en terminal (funciona por SSH). |
-| `lockd-adv` | Igual que `lockd-tui` — modo avanzado directo. |
+| Alias | What it does |
+|-------|--------------|
+| `lockd` | Detects the environment: opens the GUI if a display exists, TUI otherwise. |
+| `lockd-gui` | Forces the GTK4 GUI (requires a display). |
+| `lockd-tui` | Forces the interactive terminal TUI (works over SSH). |
+| `lockd-adv` | Same as `lockd-tui` — direct advanced mode. |
 
-> **¿Cuándo usar cada uno?**
-> - En tu escritorio de trabajo → `lockd` o `lockd-gui`
-> - Conectado por SSH a un servidor → `lockd-tui` o `lockd-adv`
-> - Script automatizado → CLI directa (`lockd scan`, `lockd enable …`)
+> **When to use which?**
+> - On your desktop workstation → `lockd` or `lockd-gui`
+> - Connected to a server over SSH → `lockd-tui` or `lockd-adv`
+> - Automated scripting → direct CLI (`lockd scan`, `lockd enable …`)
 
-### Operaciones rápidas
+### Quick operations
 
-| Alias | Equivale a |
-|-------|------------|
-| `lockd-scan` | `lockd scan` — auditoría del sistema |
-| `lockd-status` | `lockd status` — estado de todos los módulos |
-| `lockd-list` | `lockd list` — listar módulos disponibles |
-| `lockd-sim` | `lockd --dry-run` — simular sin aplicar cambios |
+| Alias | Equivalent to |
+|-------|---------------|
+| `lockd-scan` | `lockd scan` — system audit |
+| `lockd-status` | `lockd status` — state of every module |
+| `lockd-list` | `lockd list` — list available modules |
+| `lockd-sim` | `lockd --dry-run` — simulate without applying changes |
 
 ### ClamAV
 
-| Alias | Qué hace |
-|-------|----------|
-| `lockd-clamav-on` | Activa el módulo ClamAV + escaneos programados |
-| `lockd-clamav-off` | Desactiva los escaneos programados |
-| `lockd-clamav-status` | Estado actual del módulo ClamAV |
-| `lockd-clamav-info` | Información detallada (riesgo, impacto, deps) |
-| `lockd-clamav-scan` | Ejecuta un escaneo manual inmediato de `/home /tmp /var/tmp` |
+| Alias | What it does |
+|-------|--------------|
+| `lockd-clamav-on` | Enables the ClamAV module + scheduled scans |
+| `lockd-clamav-off` | Disables the scheduled scans |
+| `lockd-clamav-status` | Current state of the ClamAV module |
+| `lockd-clamav-info` | Detailed information (risk, impact, deps) |
+| `lockd-clamav-scan` | Runs an immediate manual scan of `/home /tmp /var/tmp` |
 
-> Los aliases de ClamAV aparecen en el shell pero los comandos devuelven
-> un error claro si `clamav` no está instalado — no rompen nada.
+> The ClamAV aliases appear in the shell, but the commands return a clear
+> error if `clamav` is not installed — nothing breaks.
 
-Para desinstalar todos los aliases:
+To uninstall all aliases:
 ```bash
 bash install_aliases.sh --remove
 ```
 
 ---
 
-## Modo Avanzado: GUI vs Terminal
+## Advanced mode: GUI vs Terminal
 
-El **Modo Avanzado** es la misma funcionalidad (toggles individuales por módulo,
-agrupados por categoría) disponible en dos interfaces:
+**Advanced mode** is the same functionality (individual per-module toggles,
+grouped by category) available in two interfaces:
 
-### En la GUI (GTK4 + libadwaita)
+### In the GUI (GTK4 + libadwaita)
 
-Accesible desde la pestaña **Avanzado** de la ventana principal.
+Accessible from the **Advanced** tab of the main window.
 
-- Cada módulo es un `AdwActionRow` con switch, badges de riesgo/nivel y botón ⓘ de detalle.
-- Filtro "Solo seguros para servidor" para ocultar módulos solo-desktop.
-- Al hacer click en una sugerencia del Security Scan, navega automáticamente
-  al módulo correspondiente y lo resalta.
-- Confirmaciones con diálogo antes de activar módulos destructivos (SSH, USB, SUID…).
-- Feedback de resultado inline, sin bloquear la interfaz.
+- Each module is an `AdwActionRow` with a switch, risk/level badges and an
+  ⓘ detail button.
+- "Server-safe only" filter to hide desktop-only modules.
+- Clicking a Security Scan suggestion automatically navigates to the
+  corresponding module and highlights it.
+- Confirmation dialogs before enabling destructive modules (SSH, USB, SUID…).
+- Inline result feedback without blocking the interface.
 
 ```bash
-lockd-gui        # abre la ventana → ir a pestaña "Avanzado"
-lockd            # igual, si hay display disponible
+lockd-gui        # opens the window → go to the "Advanced" tab
+lockd            # same, if a display is available
 ```
 
-### En la terminal (TUI curses)
+### In the terminal (curses TUI)
 
-Accesible por SSH o en cualquier entorno sin display gráfico.
+Accessible over SSH or in any environment without a graphical display.
 
-- Navegación con teclado: flechas, Enter para toggle, `q` para salir.
-- Mismas categorías y módulos que la GUI.
-- Funciona en cualquier terminal con soporte de colores ANSI.
-- Ideal para servidores remotos.
+- Keyboard navigation: arrows, Enter to toggle, `q` to quit.
+- Same categories and modules as the GUI.
+- Works in any terminal with ANSI color support.
+- Ideal for remote servers.
 
 ```bash
-lockd-tui        # TUI interactiva completa
-lockd-adv        # alias equivalente
-lockd advanced   # comando directo sin alias
+lockd-tui        # full interactive TUI
+lockd-adv        # equivalent alias
+lockd advanced   # direct command without alias
 ```
 
-### Comparativa rápida
+### Quick comparison
 
-| Característica | GUI | TUI |
-|----------------|-----|-----|
-| Toggle módulos | ✓ | ✓ |
-| Filtro servidor | ✓ | ✓ |
-| Ver detalles del módulo | ✓ (popover ⓘ) | ✓ (panel lateral) |
-| Confirmaciones destructivas | ✓ (diálogo) | ✓ (prompt) |
-| Funciona por SSH | ✗ | ✓ |
-| Requiere display | ✓ | ✗ |
-| Dry-run visual | ✓ (banner) | ✓ (indicador) |
+| Feature | GUI | TUI |
+|---------|-----|-----|
+| Toggle modules | ✓ | ✓ |
+| Server filter | ✓ | ✓ |
+| View module details | ✓ (ⓘ popover) | ✓ (side panel) |
+| Destructive-action confirmations | ✓ (dialog) | ✓ (prompt) |
+| Works over SSH | ✗ | ✓ |
+| Requires display | ✓ | ✗ |
+| Visual dry-run | ✓ (banner) | ✓ (indicator) |
 
 ```bash
-lockd scan                      # auditoría del sistema
-lockd list                      # lista todos los módulos
-lockd list --category network   # filtrar por categoría
-lockd list --server-only        # solo módulos server-safe
-lockd status                    # estado actual de módulos
+lockd scan                      # system audit
+lockd list                      # list all modules
+lockd list --category network   # filter by category
+lockd list --server-only        # server-safe modules only
+lockd status                    # current module state
 
-lockd enable  <module_id>       # activar módulo
-lockd disable <module_id>       # desactivar módulo
-lockd simulate <module_id>      # simular activación (sin cambios)
-lockd info <module_id>          # información detallada
+lockd enable  <module_id>       # enable a module
+lockd disable <module_id>       # disable a module
+lockd simulate <module_id>      # simulate enabling (no changes)
+lockd info <module_id>          # detailed information
 
-lockd profiles                  # listar perfiles
-lockd profile <profile_id>      # aplicar perfil
-lockd profile server --yes      # sin confirmación
+lockd profiles                  # list profiles
+lockd profile <profile_id>      # apply a profile
+lockd profile server --yes      # without confirmation
 
-lockd levels                    # listar niveles
-lockd level advanced            # aplicar nivel
+lockd levels                    # list levels
+lockd level advanced            # apply a level
 
-lockd advanced                  # TUI interactiva
-lockd tui                       # alias de advanced
+lockd advanced                  # interactive TUI
+lockd tui                       # alias for advanced
 
-# Opciones globales
-lockd --dry-run scan            # simular todo
-lockd --log-level DEBUG scan    # logging detallado
-lockd --no-color scan           # sin colores
+# Global options
+lockd --dry-run scan            # simulate everything
+lockd --log-level DEBUG scan    # detailed logging
+lockd --no-color scan           # no colors
 lockd --version
 ```
 
 ---
 
-## Seguridad y privilegios
+## Security and privileges
 
-- Usa **pkexec (Polkit)** para obtener root. Nunca `sudo` hardcodeado.
-- Backups automáticos en `/var/lib/lockd/backups/<module>/`
-- Estado persistente en `~/.config/lockd/state.json`
-- Logs en `/var/log/lockd.log`
+- Uses **pkexec (Polkit)** to obtain root. Never hardcoded `sudo`.
+- Automatic backups in `/var/lib/lockd/backups/<module>/`
+- Persistent state in `~/.config/lockd/state.json`, reconciled against the
+  real system on startup and after every operation.
+- Logs in `/var/log/lockd.log`
+
+See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy.
 
 ---
 
-## Dry-run / Simulación
+## Dry-run / Simulation
 
 ```bash
 lockd --dry-run enable kernel_sysctl_hardening
 # [WARN] [DRY-RUN] Would: Create /etc/sysctl.d/99-lockd-hardening.conf
 
-DRY_RUN=1 bash modules/kernel_sysctl_hardening/enable.sh
+sudo bash modules/kernel_sysctl_hardening/enable.sh --dry-run
 ```
 
 ---
 
-## Crear un módulo nuevo
+## Creating a new module
 
-Ver [docs/CREACION_MODULE.md](docs/CREACION_MODULE.md).
+See [docs/CREACION_MODULO.md](docs/CREACION_MODULO.md) (Spanish; English
+translation planned).
 
-1. `mkdir modules/mi_modulo/`
-2. Escribir `enable.sh`, `disable.sh`, `check.sh`
-3. `chmod +x modules/mi_modulo/*.sh`
-4. Añadir entrada en `modules/modules.yaml`
-5. Reiniciar Lockd — aparece automáticamente en GUI y CLI
+1. `mkdir modules/my_module/`
+2. Write `enable.sh`, `disable.sh`, `check.sh`
+3. `chmod +x modules/my_module/*.sh`
+4. Add an entry to `modules/modules.yaml`
+5. Restart Lockd — it appears automatically in the GUI and CLI
 
 ---
 
-## Estructura del proyecto
+## Project structure
 
 ```
 lockd/
-├── lockd.py               # punto de entrada (GUI/CLI auto)
+├── lockd.py               # entry point (GUI/CLI auto)
 ├── setup.sh               # setup + aliases + launcher
-├── pyproject.toml         # metadatos del paquete Python
-├── CHANGELOG.md           # historial de versiones
+├── pyproject.toml         # Python package metadata
+├── CHANGELOG.md           # version history
 ├── lockd/
-│   ├── app/controller.py      # lógica de negocio central
+│   ├── app/controller.py      # central business logic
 │   ├── engine/
-│   │   ├── module_loader.py   # carga y valida modules.yaml
+│   │   ├── module_loader.py   # loads and validates modules.yaml
 │   │   ├── executor.py        # pkexec + threading
-│   │   ├── scanner.py         # 16+ checks de auditoría
+│   │   ├── scanner.py         # 16+ audit checks
 │   │   ├── state_runtime.py
 │   │   ├── profile_ctx.py
 │   │   ├── level_manager.py
@@ -305,12 +318,12 @@ lockd/
 │       │   ├── module_widget.py
 │       │   └── scan_view.py
 │       └── cli/
-│           ├── main.py        # CLI con colores
-│           └── tui.py         # TUI interactiva (curses)
+│           ├── main.py        # CLI with colors
+│           └── tui.py         # interactive TUI (curses)
 ├── modules/
-│   ├── modules.yaml           # catálogo maestro
+│   ├── modules.yaml           # master catalog
 │   ├── _common.sh
-│   └── <modulo>/enable.sh  disable.sh  check.sh
+│   └── <module>/enable.sh  disable.sh  check.sh
 ├── profiles/
 │   ├── home_desktop.yaml
 │   ├── developer_workstation.yaml
@@ -321,12 +334,12 @@ lockd/
 │   ├── desktop/io.github.lockd.desktop
 │   └── polkit/io.github.lockd.policy
 └── docs/
-    ├── CREACION_MODULE.md
+    ├── CREACION_MODULO.md
     └── ARQUITECTURA.md
 ```
 
 ---
 
-## Licencia
+## License
 
-GPLv3 — Ver [LICENSE](LICENSE).
+GPLv3 — See [LICENSE](LICENSE).
