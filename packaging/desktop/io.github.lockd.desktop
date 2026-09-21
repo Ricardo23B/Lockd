@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Lockd
+GenericName=Security Hardening Tool
+Comment=Audita y endurece la seguridad de tu sistema Linux
+Comment[en]=Audit and harden your Linux system security
+Exec=lockd --gui
+Icon=io.github.lockd
+Terminal=false
+Categories=System;Security;Settings;
+Keywords=security;hardening;firewall;ssh;privacy;kernel;
+StartupWMClass=io.github.lockd
+X-GNOME-UsesNotifications=true

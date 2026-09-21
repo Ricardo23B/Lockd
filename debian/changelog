@@ -1,0 +1,10 @@
+lockd (1.0.2+parrot1) echo; urgency=medium
+
+  * Initial ParrotSec packaging (debhelper structure).
+  * Split into lockd (core, CLI, TUI, modules, helper, policy) and
+    lockd-gtk (GTK4/libadwaita graphical interface).
+  * Modules and profiles installed to /usr/lib/lockd/ (FHS root-owned
+    path validated by the privileged helper).
+  * Privileged helper installed to /usr/libexec/lockd/lockd-helper.
+
+ -- Ricardo Emmanuel Borda <r2b3fsa@gmail.com>  Mon, 21 Sep 2026 12:05:40 +0000

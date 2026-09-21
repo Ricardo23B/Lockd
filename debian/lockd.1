@@ -1,0 +1,84 @@
+.TH LOCKD 1 "September 2026" "lockd 1.0.2" "User Commands"
+.SH NAME
+lockd \- modular Linux security hardening tool
+.SH SYNOPSIS
+.B lockd
+[\fIOPTIONS\fR] [\fICOMMAND\fR] [\fIARGS\fR]
+.SH DESCRIPTION
+Lockd applies, simulates and verifies security hardening on Linux systems
+through declarative, reversible modules. Every change can be previewed
+with a real dry-run and rolled back afterwards; the reported state comes
+from the real system, not from a cached file.
+.PP
+Without arguments, \fBlockd\fR opens the GUI when a display is available,
+or the interactive TUI otherwise.
+.SH COMMANDS
+.TP
+.B scan
+Run the security audit and print a 0\(en100 score with suggestions.
+.TP
+.B list
+List available modules (optionally filtered by \fB\-\-category\fR).
+.TP
+.B status
+Show the current state of each module reconciled with the real system.
+.TP
+.BI "enable " module_id
+Enable a module.
+.TP
+.BI "disable " module_id
+Disable a module.
+.TP
+.BI "simulate " module_id
+Preview what enabling a module would do, without changing anything.
+.TP
+.BI "info " module_id
+Show detailed information about a module.
+.TP
+.B profiles
+List available hardening profiles.
+.TP
+.BI "profile " profile_id
+Apply a hardening profile.
+.TP
+.B levels
+List cumulative hardening levels (basic, advanced, expert, paranoid).
+.TP
+.BI "level " level_id
+Apply a hardening level.
+.TP
+.B advanced
+Open the interactive TUI (works over SSH and in headless environments).
+.SH OPTIONS
+.TP
+.B \-\-dry\-run
+Simulate everything. No changes are made to the system.
+.TP
+.BI "\-\-log\-level " LEVEL
+Set the logging level (DEBUG, INFO, WARNING, ERROR).
+.TP
+.B \-\-no\-color
+Disable colored output.
+.TP
+.B \-\-version
+Print the version and exit.
+.SH FILES
+.TP
+.I /usr/lib/lockd/modules/
+Hardening modules (shell scripts + metadata).
+.TP
+.I /usr/lib/lockd/profiles/
+Hardening profiles (YAML).
+.TP
+.I /usr/libexec/lockd/lockd-helper
+Privileged helper invoked via Polkit for all root operations.
+.TP
+.I /var/lib/lockd/journal.jsonl
+Append\-only journal of every privileged operation.
+.TP
+.I ~/.config/lockd/state.json
+Per\-user module state, reconciled against the real system on startup.
+.SH AUTHOR
+Ricardo Emmanuel Borda <r2b3fsa@gmail.com>
+.SH SEE ALSO
+Full documentation at https://gitlab.com/Ricardo23B/Lockd

@@ -1,0 +1,29 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+*.log
+.coverage
+state.json
+# leftover temp files
+*.old
+*.bak
+tmp_modules/
+.env
+# Debian packaging build artifacts
+debian/.debhelper/
+debian/tmp/
+debian/lockd/
+debian/lockd-gtk/
+debian/files
+debian/*.substvars
+debian/*.debhelper
+debian/debhelper-build-stamp
+.pybuild/
+*.deb
+*.buildinfo
+*.changes

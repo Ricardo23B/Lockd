@@ -1,0 +1,31 @@
+#!/usr/bin/make -f
+
+export PYBUILD_NAME=lockd
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+# Fuerza destino del auto_install: sin esto, con múltiples paquetes binarios,
+# los archivos Python quedan en debian/tmp/ y ningún dh_install los mueve.
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/lockd
+
+# Iconos con nombre canónico (los .install no pueden renombrar hacia .png).
+override_dh_install:
+	dh_install
+	for sz in 16 32 48 64 128 256; do \
+		install -Dm644 assets/icons/lockd_$${sz}x$${sz}.png \
+			debian/lockd-gtk/usr/share/icons/hicolor/$${sz}x$${sz}/apps/io.github.lockd.png; \
+	done
+
+override_dh_fixperms:
+	dh_fixperms
+	if [ -f debian/lockd/usr/libexec/lockd/lockd-helper ]; then \
+		chmod 0755 debian/lockd/usr/libexec/lockd/lockd-helper; \
+	fi
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+override_dh_auto_test:
+	:

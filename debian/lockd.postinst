@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+# Confirmar propiedad y permisos del helper (defensa en profundidad).
+if [ -f /usr/libexec/lockd/lockd-helper ]; then
+    chown root:root /usr/libexec/lockd/lockd-helper
+    chmod 0755 /usr/libexec/lockd/lockd-helper
+fi
+#DEBHELPER#
+exit 0

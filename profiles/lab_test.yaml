@@ -1,0 +1,11 @@
+id: lab_test
+name: "Lab / Test"
+description: testing stuff locally — not for production
+icon: applications-science-symbolic
+compatible: [desktop]
+
+# quick profile for local dev machines, apply selectively
+modules:
+  - enable_firewall
+  - kernel_sysctl_hardening
+  - hide_procs_nonroot

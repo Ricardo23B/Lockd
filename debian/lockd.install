@@ -1,0 +1,4 @@
+helper/lockd-helper                        usr/libexec/lockd/
+packaging/polkit/io.github.lockd.policy    usr/share/polkit-1/actions/
+modules                                    usr/lib/lockd/
+profiles                                   usr/lib/lockd/

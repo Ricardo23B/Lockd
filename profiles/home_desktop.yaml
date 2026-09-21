@@ -1,0 +1,16 @@
+id: home_desktop
+name: "Home Desktop"
+description: >
+  Configuración básica para equipos personales de escritorio. Activar
+  el cortafuegos y proteger /tmp sin tocar la configuración SSH.
+  Ideal como primer paso de seguridad.
+icon: user-home-symbolic
+compatible: [desktop]
+modules:
+  - enable_firewall
+  - automatic_security_updates
+  - install_fail2ban
+  - secure_tmp_partition
+  - hide_procs_nonroot
+  - disable_core_dumps
+  - disable_ctrl_alt_del

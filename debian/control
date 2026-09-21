@@ -1,0 +1,51 @@
+Source: lockd
+Section: admin
+Priority: optional
+Maintainer: Ricardo Emmanuel Borda <r2b3fsa@gmail.com>
+Standards-Version: 4.7.2
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-python,
+ python3-all,
+ python3-setuptools,
+ python3-yaml,
+ pybuild-plugin-pyproject,
+Rules-Requires-Root: no
+Homepage: https://gitlab.com/Ricardo23B/Lockd
+Vcs-Git: https://gitlab.com/Ricardo23B/Lockd.git
+Vcs-Browser: https://gitlab.com/Ricardo23B/Lockd
+
+Package: lockd
+Architecture: all
+Depends:
+ ${python3:Depends},
+ ${misc:Depends},
+ python3-yaml,
+ polkitd | policykit-1,
+ pkexec,
+ bash (>= 5.0),
+Recommends: ufw, fail2ban
+Suggests: clamav, clamav-daemon, clamav-freshclam
+Description: Modular Linux security hardening tool (core + CLI)
+ Lockd applies, simulates and verifies security hardening on Linux
+ systems through declarative, reversible modules. Every change can be
+ previewed with a real dry-run and rolled back afterwards; the reported
+ state comes from the real system, not from a cached file.
+ .
+ This package contains the core engine, the command-line interface, the
+ interactive TUI, the hardening modules and the privileged Polkit helper.
+ Install lockd-gtk for the graphical interface.
+
+Package: lockd-gtk
+Architecture: all
+Depends:
+ ${misc:Depends},
+ lockd (= ${binary:Version}),
+ python3-gi,
+ gir1.2-gtk-4.0,
+ gir1.2-adw-1,
+Description: Modular Linux security hardening tool (GTK graphical interface)
+ GTK4 and libadwaita graphical interface for Lockd.
+ .
+ Provides the desktop application and menu launcher on top of the lockd
+ core package.

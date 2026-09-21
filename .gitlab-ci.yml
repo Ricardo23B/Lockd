@@ -1,0 +1,88 @@
+# .gitlab-ci.yml — Pipeline de CI/CD para Lockd
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+
+cache:
+  paths:
+    - .pip-cache/
+
+lint:
+  stage: lint
+  image: python:3.12-slim
+  before_script:
+    - pip install flake8 --quiet
+  script:
+    - flake8 lockd/ lockd.py --count --statistics
+  allow_failure: false
+
+.test_template: &test_template
+  stage: test
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq python3-gi gir1.2-gtk-4.0 libgirepository1.0-dev python3-yaml shellcheck
+    - pip install pyyaml pytest --quiet
+  script:
+    - echo "=== Python $PYTHON_VERSION ==="
+    - python --version
+    - python -c "import yaml; print('PyYAML OK')"
+    - python -m py_compile lockd.py
+    - python -m py_compile lockd/engine/distro_detector.py
+    - python -m py_compile lockd/engine/scanner.py
+    - python -m py_compile lockd/engine/module_loader.py
+    - python -m py_compile lockd/app/controller.py
+    - python ci/validate_modules.py
+    - python ci/validate_profiles.py
+    - find modules/ -name "*.sh" -exec shellcheck --severity=warning {} \;
+    - pytest tests/ -v --tb=short
+  artifacts:
+    when: on_failure
+    paths:
+      - "*.log"
+    expire_in: 7 days
+
+test:python311:
+  <<: *test_template
+  image: python:3.11-slim
+  variables:
+    PYTHON_VERSION: "3.11"
+
+test:python312:
+  <<: *test_template
+  image: python:3.12-slim
+  variables:
+    PYTHON_VERSION: "3.12"
+
+test:python313:
+  <<: *test_template
+  image: python:3.13-slim
+  variables:
+    PYTHON_VERSION: "3.13"
+
+
+build:deb:
+  stage: build
+  image: debian:trixie-slim
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq --no-install-recommends build-essential
+        debhelper dh-python pybuild-plugin-pyproject
+        python3-all python3-setuptools dpkg-dev lintian git
+    - rm -rf "$CI_PROJECT_DIR/.pip-cache"
+  script:
+    - UPSTREAM_VERSION=$(dpkg-parsechangelog -S Version | sed 's/-[^-]*$//')
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - git archive --prefix="lockd-${UPSTREAM_VERSION}/" -o "../lockd_${UPSTREAM_VERSION}.orig.tar.gz" HEAD
+    - dpkg-buildpackage -us -uc
+    - lintian --fail-on error,warning ../lockd_*.deb
+    - mkdir -p debs && cp ../lockd_* ../lockd-gtk_* debs/
+  artifacts:
+    name: "lockd-$CI_COMMIT_TAG"
+    paths:
+      - debs/
+    expire_in: 90 days
