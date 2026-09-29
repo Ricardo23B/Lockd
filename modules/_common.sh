@@ -158,3 +158,26 @@ baseline_end() {
     apply "Cerrar ciclo de línea base de '$mod'" \
         rm -f "$(_baseline_marker "$mod")" "${BACKUP_BASE}/${mod}/.absent"
 }
+
+# ── sshd ─────────────────────────────────────────────────────────────────────
+reload_sshd() {
+    # Recarga sshd según cómo corre. Las sesiones abiertas no se cortan: la
+    # configuración nueva rige para las conexiones nuevas.
+    local unit
+    if ! command -v systemctl &>/dev/null || [ ! -d /run/systemd/system ]; then
+        warn "Sin systemd: recargá sshd a mano (SIGHUP al proceso principal)."
+        return 0
+    fi
+    for unit in ssh.service sshd.service; do
+        if systemctl is-active --quiet "$unit"; then
+            systemctl reload "$unit"
+            info "sshd recargado ($unit)."
+            return 0
+        fi
+    done
+    if systemctl is-active --quiet ssh.socket; then
+        info "sshd activado por socket: la configuración rige desde la próxima conexión."
+        return 0
+    fi
+    warn "sshd no está corriendo: la configuración rige cuando arranque."
+}
