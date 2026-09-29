@@ -36,7 +36,8 @@ lint:
     - python -m py_compile lockd/app/controller.py
     - python ci/validate_modules.py
     - python ci/validate_profiles.py
-    - find modules/ -name "*.sh" -exec shellcheck --severity=warning {} \;
+    # {} + (no \;): con \; find devuelve 0 aunque shellcheck falle
+    - find modules/ -name "*.sh" -exec shellcheck --severity=warning {} +
     - pytest tests/ -v --tb=short
   artifacts:
     when: on_failure

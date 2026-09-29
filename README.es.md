@@ -266,7 +266,8 @@ Ver [SECURITY.md](SECURITY.md) para la política de reporte de vulnerabilidades.
 
 ```bash
 lockd --dry-run enable kernel_sysctl_hardening
-# [WARN] [DRY-RUN] Would: Create /etc/sysctl.d/99-lockd-hardening.conf
+# [WARN] [DRY-RUN] Would write: /etc/sysctl.d/99-lockd-hardening.conf
+#     | net.ipv4.tcp_syncookies = 1  (…contenido completo que escribiría)
 
 sudo bash modules/kernel_sysctl_hardening/enable.sh --dry-run
 ```
