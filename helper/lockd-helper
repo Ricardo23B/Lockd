@@ -161,17 +161,22 @@ def main() -> int:
     # pkexec ya nos entregó un entorno saneado; armamos uno mínimo y explícito.
     # Como nosotros invocamos el script DIRECTAMENTE (sin un segundo pkexec),
     # estas variables SÍ llegan al script.
+    caller_uid = os.environ.get("PKEXEC_UID", "")  # uid real del usuario que autenticó
+    if not caller_uid.isdigit():
+        caller_uid = ""
+
     env = {
         "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
         "HOME": "/root",
         "LANG": os.environ.get("LANG", "C.UTF-8"),
         "LOCKD_OP_ID":    op_id,
         "LOCKD_MANIFEST": str(manifest),
+        # Quién pidió la operación: los módulos con riesgo de lockout (SSH)
+        # necesitan saber a QUÉ usuario no pueden dejar afuera.
+        **({"LOCKD_CALLER_UID": caller_uid} if caller_uid else {}),
         **({"DRY_RUN": "1"} if args.dry_run else {}),
     }
     cmd = ["/bin/bash", str(script)] + (["--dry-run"] if args.dry_run else [])
-
-    caller_uid = os.environ.get("PKEXEC_UID", "")  # uid real del usuario que autenticó
     base = {
         "op_id":   op_id,
         "module":  args.module_id,
