@@ -10,6 +10,7 @@ Ejecuta todos los checks registrados con @check y devuelve un SecurityReport con
 Para añadir un check: decorar la función con @check y añadir su peso en _WEIGHTS.
 Los pesos deben sumar 100.
 """
+import glob
 import logging
 import re
 import shutil
@@ -160,7 +161,8 @@ def check_ssh_root() -> CheckResult:
                            "Servidor OpenSSH no instalado — sin exposición SSH",
                            category="services")
     val = _sshd_option("PermitRootLogin")
-    if val in ("no", "prohibit-password"):
+    # without-password: alias histórico de prohibit-password
+    if val in ("no", "prohibit-password", "without-password"):
         return CheckResult("ssh_root", "SSH: login root", "secure",
                            f"PermitRootLogin {val}", category="services")
     if val is None:
@@ -484,28 +486,69 @@ def _sshd_installed() -> bool:
     return Path("/etc/ssh/sshd_config").exists() or bool(shutil.which("sshd"))
 
 
-def _sshd_option(option: str) -> Optional[str]:
-    """Lee un campo de sshd_config y sus drop-ins. Devuelve el último valor efectivo."""
-    files = [Path("/etc/ssh/sshd_config")]
-    d = Path("/etc/ssh/sshd_config.d")
-    if d.exists():
-        files += sorted(d.glob("*.conf"))
-    val = None
-    for f in files:
-        if not f.exists():
-            continue
+_SSHD_ALIASES = {"challengeresponseauthentication": "kbdinteractiveauthentication"}
+
+
+class _SshdUnreadable(Exception):
+    """Un archivo de config que sshd lee y el scanner (sin root) no puede leer."""
+
+
+def _sshd_option(option: str, config: Optional[Path] = None) -> Optional[str]:
+    """Valor EFECTIVO de una opción global de sshd, resuelto como lo hace sshd.
+
+    - Gana el PRIMER valor encontrado (antes se devolvía el último: lo opuesto).
+    - `Include` se expande en su posición; Debian/Ubuntu lo tienen al principio
+      de sshd_config, así que los drop-ins de sshd_config.d/ se leen antes que
+      el resto del archivo principal, en orden léxico.
+    - Cada archivo se corta en su primer `Match`: lo que sigue es condicional
+      y no define el valor global.
+    - Si un archivo ilegible aparece antes de resolver la opción, el valor no
+      es determinable → None (el check lo reporta como unknown).
+    """
+    want = option.lower()
+    want = _SSHD_ALIASES.get(want, want)
+    root = config if config is not None else Path("/etc/ssh/sshd_config")
+    if not root.exists():
+        return None
+    base = root.parent
+    visited: set = set()
+
+    def walk(path: Path, depth: int) -> Optional[str]:
+        if depth > 8 or path in visited:
+            return None
+        visited.add(path)
         try:
-            text = f.read_text()
+            text = path.read_text()
         except OSError:
-            continue
-        for line in text.splitlines():
-            line = line.strip()
-            if line.startswith("#"):
+            raise _SshdUnreadable(str(path))
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
                 continue
-            m = re.match(rf"(?i){re.escape(option)}\s+(\S+)", line)
-            if m:
-                val = m.group(1).lower()
-    return val
+            m = re.match(r"(\S+?)(?:\s*=\s*|\s+)(.*)$", line)
+            if not m:
+                continue
+            kw = m.group(1).lower()
+            kw = _SSHD_ALIASES.get(kw, kw)
+            rest = m.group(2).strip()
+            if kw == "match":
+                return None
+            if kw == "include":
+                for pat in rest.split():
+                    full = pat if pat.startswith("/") else str(base / pat)
+                    for inc in sorted(glob.glob(full)):
+                        val = walk(Path(inc), depth + 1)
+                        if val is not None:
+                            return val
+                continue
+            if kw == want and rest:
+                return rest.split()[0].lower()
+        return None
+
+    try:
+        return walk(root, 0)
+    except _SshdUnreadable:
+        return None
 
 
 def _find_sysctl() -> Optional[str]:

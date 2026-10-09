@@ -36,6 +36,8 @@ WATCHED_DIRS = [
     "/etc/fail2ban",
     "/etc/apt/apt.conf.d",
     "/etc/security",
+    "/etc/ufw",
+    "/etc/default",
     "/var/lib/lockd",
     "/var/log/lockd",
     "/var/quarantine",

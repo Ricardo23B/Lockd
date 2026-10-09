@@ -31,8 +31,9 @@ modules:
     name: "Activar Cortafuegos (UFW)"
     description: >
       Activa UFW con política segura por defecto: bloquea todo el tráfico
-      entrante salvo SSH con rate-limiting. Permite todo el tráfico saliente.
-      Primera línea de defensa en cualquier sistema conectado a red.
+      entrante salvo SSH (en el puerto real de sshd) con rate-limiting.
+      Conserva las reglas existentes; al desactivar, restaura las reglas y
+      el estado previos. Permite todo el tráfico saliente.
     category: network
     security_level: basic
     risk_level: low
@@ -211,9 +212,10 @@ modules:
     name: "Hardening del Kernel (sysctl)"
     description: >
       Aplica parámetros de seguridad al kernel via sysctl.d: deshabilita
-      IP forwarding innecesario, activa SYN cookies, rechaza ICMP redirects,
-      habilita protección contra spoofing con rp_filter y otras medidas
-      que reducen la superficie de ataque a nivel de red y kernel.
+      IP forwarding salvo que lo usen contenedores, VMs o VPN, activa SYN
+      cookies, rechaza ICMP redirects, habilita rp_filter y otras medidas
+      que reducen la superficie de ataque. Al desactivar, restaura los
+      valores en ejecución previos.
     category: kernel
     security_level: advanced
     risk_level: medium
@@ -253,9 +255,11 @@ modules:
     name: "Endurecer Servidor SSH"
     description: >
       Aplica configuración estricta al servidor SSH mediante drop-in en
-      sshd_config.d/: deshabilita auth por contraseña, prohíbe login root,
-      limita intentos de autenticación, desactiva X11 forwarding y usa
-      solo algoritmos criptográficos modernos y seguros.
+      sshd_config.d/: deshabilita auth por contraseña (incluida la vía
+      keyboard-interactive/PAM), prohíbe login root, limita intentos de
+      autenticación, desactiva X11 forwarding y retira los intercambios de
+      claves clásicos conservando los híbridos post-cuánticos. Se niega a
+      aplicarse si dejaría sin acceso al usuario conectado por SSH.
     category: services
     security_level: advanced
     risk_level: high
