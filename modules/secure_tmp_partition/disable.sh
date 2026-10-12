@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "$0")/../_common.sh"
 check_root
-DROP_IN="/etc/systemd/system/tmp.mount.d/lockd-secure.conf"
+DROP_IN="${SYSROOT}/etc/systemd/system/tmp.mount.d/lockd-secure.conf"
 if [ "$DRY_RUN" = "1" ]; then
     warn "[DRY-RUN] Remove $DROP_IN"; warn "[DRY-RUN] mount -o remount /tmp"; exit 0
 fi

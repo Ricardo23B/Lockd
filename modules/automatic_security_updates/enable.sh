@@ -2,13 +2,14 @@
 set -euo pipefail
 source "$(dirname "$0")/../_common.sh"
 check_root
+AUTO_CONF="${SYSROOT}/etc/apt/apt.conf.d/20auto-upgrades"
 if [ "$DRY_RUN" = "1" ]; then
     warn "[DRY-RUN] apt install -y unattended-upgrades"
     warn "[DRY-RUN] Configure /etc/apt/apt.conf.d/20auto-upgrades"
     exit 0
 fi
 apt-get install -y unattended-upgrades
-cat > /etc/apt/apt.conf.d/20auto-upgrades << 'CONF'
+cat > "$AUTO_CONF" << 'CONF'
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 APT::Periodic::AutocleanInterval "7";

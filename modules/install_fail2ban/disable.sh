@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "$0")/../_common.sh"
 check_root
-CONF="/etc/fail2ban/jail.d/lockd-ssh.conf"
+CONF="${SYSROOT}/etc/fail2ban/jail.d/lockd-ssh.conf"
 if [ "$DRY_RUN" = "1" ]; then
     warn "[DRY-RUN] remove $CONF"; warn "[DRY-RUN] systemctl stop fail2ban"; exit 0
 fi

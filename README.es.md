@@ -17,6 +17,29 @@ accesibles tanto desde un escritorio gráfico, desde CLI o en un servidor remoto
 
 ---
 
+## Estado y limitaciones conocidas
+
+Lockd está en **beta**. Antes de usarlo en un sistema que no puedas
+reconstruir, ten en cuenta estas limitaciones:
+
+- **Desactivar un módulo todavía no restaura el estado previo en 7 de los 16
+  módulos.** Desactivar `secure_shared_memory`, `secure_tmp_partition` o
+  `hide_procs_nonroot` no restaura las opciones de montaje previas en
+  ejecución, y desactivar `secure_shared_memory` o `hide_procs_nonroot` puede
+  borrar de `/etc/fstab` la línea del otro. Desactivar
+  `automatic_security_updates`, `install_fail2ban` o `apparmor_enforce_mode`
+  puede apagar protecciones que estaban activas antes de Lockd.
+  `restrict_suid_binaries` pierde su lista de restauración si se activa dos
+  veces. Los arreglos están en curso y los sigue `tests/test_reversibility.py`.
+- Otros cuatro módulos revierten de forma aproximada: `disable_core_dumps`,
+  `disable_ctrl_alt_del`, `restrict_compilers` y `clamav_scanner`.
+- El rollback transaccional entre módulos todavía no está implementado.
+- La interfaz y las descripciones de los módulos están en español; la versión
+  en inglés está planificada.
+- Solo sistemas basados en Debian (Debian, Ubuntu, Parrot OS).
+
+---
+
 ## Características
 
 - **Security Scan** con score 0–100 y sugerencias de corrección.
@@ -27,7 +50,6 @@ accesibles tanto desde un escritorio gráfico, desde CLI o en un servidor remoto
 - **Modo Avanzado**: toggles individuales por categoría con detalle de riesgo e impacto.
 - **Dry-run**: simulación completa sin modificar el sistema.
 - **ClamAV** integrado como categoría de módulo (escaneo antivirus opcional).
-- Backups automáticos antes de cada cambio.
 - Operaciones privilegiadas vía **Polkit** (pkexec), nunca sudo hardcodeado.
 
 ---
@@ -105,6 +127,28 @@ sudo apt install ufw fail2ban
 ---
 
 ## Instalación
+
+La instalación recomendada es el paquete Debian: instala el helper
+privilegiado y el catálogo de módulos en rutas de root, y cada operación
+queda registrada en el journal (ver [SECURITY.md](SECURITY.md)). Hasta que
+una release publique paquetes listos, se construyen desde el código:
+
+```bash
+sudo apt install build-essential debhelper dh-python pybuild-plugin-pyproject \
+    python3-all python3-setuptools python3-yaml
+git clone https://gitlab.com/Ricardo23B/Lockd.git
+cd Lockd
+dpkg-buildpackage -us -uc -b
+sudo apt install ../lockd_*.deb ../lockd-gtk_*.deb   # lockd-gtk es opcional
+```
+
+### Modo desarrollo (`setup.sh`)
+
+> **Advertencia:** `setup.sh` ejecuta Lockd desde el código fuente sin el
+> helper privilegiado. `pkexec` corre entonces los scripts de los módulos
+> desde un directorio que tu usuario puede modificar, y no queda journal de
+> operaciones. Úsalo para trabajar en Lockd, no para endurecer un sistema del
+> que dependes.
 
 ```bash
 git clone https://gitlab.com/Ricardo23B/Lockd.git
