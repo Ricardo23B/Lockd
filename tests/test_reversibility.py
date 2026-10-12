@@ -35,7 +35,8 @@ ROOT        = Path(__file__).resolve().parent.parent
 MODULES_DIR = ROOT / "modules"
 STUB        = ROOT / "tests" / "stubs" / "lockd_stub.py"
 COMANDOS    = ["mount", "findmnt", "systemctl", "apt-get", "aa-enforce",
-               "aa-complain", "getent", "groupadd", "usermod", "id", "lockd-stubs"]
+               "aa-complain", "getent", "groupadd", "groupdel", "usermod", "gpasswd",
+               "id", "lockd-stubs"]
 # Comandos reales que los módulos pueden usar en modo test: solo leen o escriben
 # las rutas que reciben, que caen dentro del árbol. Sumar uno es una decisión:
 # si actúa sobre el sistema (servicios, montajes, paquetes), lleva stub.
@@ -102,6 +103,19 @@ class Sistema:
     def montajes(self, puntos: dict) -> None:
         self._estado("mounts", {p: o.split(",") for p, o in puntos.items()})
 
+    def montar(self, punto: str, opciones: str) -> None:
+        f = self.raiz / ".stubs" / "state" / "mounts.json"
+        actuales = json.loads(f.read_text())
+        actuales[punto] = opciones.split(",")
+        f.write_text(json.dumps(actuales))
+
+    def fallar_remontaje(self, *puntos: str) -> None:
+        self._estado("fallos", {"mount": list(puntos)})
+
+    def agregar_linea(self, rel: str, linea: str) -> None:
+        p = self.raiz / rel
+        p.write_text(p.read_text(encoding="utf-8") + linea + "\n", encoding="utf-8")
+
     def unidades(self, unidades: dict) -> None:
         self._estado("units", unidades)
 
@@ -132,6 +146,15 @@ class Sistema:
             raise FalloDeEjecucion(f"{modulo} {accion} rc={r.returncode} sin stub={sin_stub}\n"
                                    f"{r.stdout}\n{r.stderr}")
         return r
+
+    def correr_esperando_fallo(self, modulo: str, accion: str) -> subprocess.CompletedProcess:
+        try:
+            r = self.correr(modulo, accion)
+        except FalloDeEjecucion as e:
+            if "sin stub=[]" not in str(e) or "MODO TEST" not in str(e):
+                raise
+            return e
+        raise AssertionError(f"{modulo} {accion} debía fallar y terminó bien:\n{r.stdout}\n{r.stderr}")
 
     def ida_y_vuelta(self, modulo: str) -> None:
         self.correr(modulo, "enable")
@@ -201,6 +224,32 @@ def _binarios_suid(s: Sistema) -> None:
         s.escribir(f"usr/bin/{nombre}", "#!/bin/sh\n", modo=0o4755)
 
 
+def _shm_ya_endurecido(s: Sistema) -> None:
+    # quien ya tenía noexec en /dev/shm lo conserva al desactivar
+    s.montar("/dev/shm", "rw,nosuid,nodev,noexec,relatime")
+
+
+def _fstab_del_usuario_shm(s: Sistema) -> None:
+    s.agregar_linea("etc/fstab", "tmpfs /dev/shm tmpfs defaults,size=2G 0 0")
+    s.montar("/dev/shm", "rw,nosuid,nodev,relatime,size=2097152k")
+
+
+def _procview_existente(s: Sistema) -> None:
+    s.agregar_linea("etc/passwd", "alguien:x:1000:1000::/home/alguien:/bin/bash")
+    s.agregar_linea("etc/group", "procview:x:1500:alguien")
+
+
+def _proc_del_usuario(s: Sistema) -> None:
+    # línea típica de una guía de endurecimiento, con /proc como queda al
+    # arrancar con ella; el kernel muestra hidepid=2 como invisible
+    s.agregar_linea("etc/fstab", "proc /proc proc defaults,hidepid=2 0 0")
+    s.montar("/proc", "rw,relatime,hidepid=invisible")
+
+
+def _tmp_ya_endurecido(s: Sistema) -> None:
+    s.montar("/tmp", "rw,nosuid,nodev,noexec,relatime")
+
+
 def _perfiles_mixtos(s: Sistema) -> None:
     s.apparmor({"usr.bin.alfa": "enforce", "usr.bin.beta": "complain",
                 "usr.sbin.gama": "enforce"})
@@ -212,12 +261,14 @@ def _deuda(motivo: str):
 
 
 CASOS = [
-    pytest.param("secure_shared_memory", _sin_preparacion, marks=_deuda(
-        "disable no quita noexec de /dev/shm en ejecución: remount sin opciones (martes)")),
-    pytest.param("hide_procs_nonroot", _sin_preparacion, marks=_deuda(
-        "disable fuerza hidepid=0 y deja el grupo procview con sus miembros (martes)")),
-    pytest.param("secure_tmp_partition", _sin_preparacion, marks=_deuda(
-        "disable deja noexec en /tmp hasta reiniciar (martes)")),
+    pytest.param("secure_shared_memory", _sin_preparacion),
+    pytest.param("secure_shared_memory", _shm_ya_endurecido),
+    pytest.param("secure_shared_memory", _fstab_del_usuario_shm),
+    pytest.param("hide_procs_nonroot", _sin_preparacion),
+    pytest.param("hide_procs_nonroot", _procview_existente),
+    pytest.param("hide_procs_nonroot", _proc_del_usuario),
+    pytest.param("secure_tmp_partition", _sin_preparacion),
+    pytest.param("secure_tmp_partition", _tmp_ya_endurecido),
     pytest.param("automatic_security_updates", _ubuntu_con_actualizaciones, marks=_deuda(
         "disable escribe 20auto-upgrades con \"0\" en vez de restaurar el previo (miércoles)")),
     pytest.param("install_fail2ban", _fail2ban_propio, marks=_deuda(
@@ -240,7 +291,6 @@ def test_ida_y_vuelta_restaura_el_estado_previo(sistema, modulo, preparar):
     _sin_cambios(antes, sistema.estado())
 
 
-@_deuda("disable restaura fstab entero y borra la línea de otro módulo (martes)")
 def test_fstab_compartido_respeta_la_linea_de_otro_modulo(sistema):
     sistema.correr("secure_shared_memory", "enable")
     sistema.correr("hide_procs_nonroot", "enable")
@@ -248,6 +298,63 @@ def test_fstab_compartido_respeta_la_linea_de_otro_modulo(sistema):
     fstab = (sistema.raiz / "etc" / "fstab").read_text()
     if "# lockd-shm" in fstab or "# lockd-hide-procs" not in fstab:
         raise DiferenciaDeEstado(f"fstab tras disable de secure_shared_memory:\n{fstab}")
+
+
+MONTAJES = [("secure_shared_memory", "/dev/shm"), ("hide_procs_nonroot", "/proc"),
+            ("secure_tmp_partition", "/tmp")]
+
+
+@pytest.mark.parametrize("modulo, punto", MONTAJES)
+def test_reaplicar_enable_conserva_las_opciones_previas(sistema, modulo, punto):
+    # aplicar un nivel vuelve a ejecutar enable: lo guardado no se pisa
+    antes = sistema.estado()
+    sistema.correr(modulo, "enable")
+    sistema.correr(modulo, "enable")
+    sistema.correr(modulo, "disable")
+    _sin_cambios(antes, sistema.estado())
+
+
+@pytest.mark.parametrize("modulo, punto", MONTAJES)
+def test_enable_es_atomico_si_el_remontaje_falla(sistema, modulo, punto):
+    sistema.fallar_remontaje(punto)
+    antes = sistema.estado()
+    sistema.correr_esperando_fallo(modulo, "enable")
+    _sin_cambios(antes, sistema.estado())
+    # ni opciones previas ni grupos guardados: el próximo enable empieza limpio
+    respaldo = sistema.raiz / "var" / "lib" / "lockd" / "backups" / modulo
+    assert not list(respaldo.glob("montaje-*.previas"))
+    assert not (respaldo / "grupos.estado").exists()
+
+
+def test_fstab_del_usuario_se_fusiona_sin_duplicar(sistema):
+    _fstab_del_usuario_shm(sistema)
+    sistema.correr("secure_shared_memory", "enable")
+    lineas = (sistema.raiz / "etc" / "fstab").read_text().splitlines()
+    activas = [x for x in lineas if not x.startswith("#") and x.split()[1:2] == ["/dev/shm"]]
+    assert activas == ["tmpfs /dev/shm tmpfs defaults,size=2G,noexec,nosuid,nodev 0 0 # lockd-shm"]
+    assert "# lockd-shm:original tmpfs /dev/shm tmpfs defaults,size=2G 0 0" in lineas
+
+
+def test_hide_procs_conserva_nosuid_nodev_noexec_en_proc(sistema):
+    # La línea de fstab lleva esas banderas explícitas: el remontaje y el
+    # arranque, que aplican las opciones de fstab, las mantienen en /proc.
+    sistema.correr("hide_procs_nonroot", "enable")
+    opciones = sistema.estado()["montajes"]["/proc"]
+    assert {"nosuid", "nodev", "noexec", "hidepid=invisible"} <= set(opciones)
+    linea = [x for x in (sistema.raiz / "etc" / "fstab").read_text().splitlines()
+             if x.endswith("# lockd-hide-procs")]
+    assert len(linea) == 1 and "defaults" not in linea[0]
+    assert linea[0].split()[3].startswith("nosuid,nodev,noexec,hidepid=invisible,gid=")
+
+
+def test_disable_sin_opciones_guardadas_no_adivina(sistema):
+    # activado con una versión anterior de Lockd: no hay opciones previas
+    sistema.agregar_linea("etc/fstab", "tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev 0 0 # lockd-shm")
+    sistema.montar("/dev/shm", "rw,nosuid,nodev,noexec,relatime")
+    r = sistema.correr("secure_shared_memory", "disable")
+    assert "# lockd-shm" not in (sistema.raiz / "etc" / "fstab").read_text()
+    assert "noexec" in sistema.estado()["montajes"]["/dev/shm"]
+    assert "No hay opciones previas guardadas" in r.stdout
 
 
 @_deuda("un segundo enable vacía la lista y disable no restaura el SUID (miércoles)")
@@ -276,7 +383,8 @@ class TestStubs:
         assert "noexec" in _cmd(sistema, "findmnt", "-n", "-o", "OPTIONS", "/dev/shm").stdout
         _cmd(sistema, "mount", "-o", "remount,exec", "/dev/shm")
         opciones = _cmd(sistema, "findmnt", "-n", "-o", "OPTIONS", "/dev/shm").stdout.strip()
-        assert "noexec" not in opciones.split(",") and "exec" in opciones.split(",")
+        # como el kernel: exec no se muestra, solo la ausencia de noexec
+        assert opciones.split(",") == ["rw", "nosuid", "nodev", "relatime"]
 
     def test_remount_sin_opciones_ni_fstab_conserva(self, sistema):
         _cmd(sistema, "mount", "-o", "remount,noexec", "/tmp")

@@ -4,7 +4,7 @@ tests/stubs/lockd_stub.py — Comandos del sistema simulados para el modo test
 
 Un solo programa que se comporta según el nombre con el que lo invocan
 (mount, findmnt, systemctl, apt-get, aa-enforce, aa-complain, getent,
-groupadd, usermod, id, fail2ban-client). Los tests lo copian a
+groupadd, groupdel, usermod, gpasswd, id, fail2ban-client). Los tests lo copian a
 $LOCKD_SYSROOT/.stubs/bin/<comando>, junto con el centinela lockd-stubs:
 _common.sh lo ejecuta antes de nada (si no responde "ok", aborta) y deja el
 PATH solo en ese directorio.
@@ -13,9 +13,17 @@ El estado simulado vive en $LOCKD_SYSROOT/.stubs/state/*.json y cada llamada
 queda en $LOCKD_SYSROOT/.stubs/calls.log. Los archivos (/etc/group, /etc/fstab,
 ...) son los del árbol de prueba. La semántica imita lo que importa para
 revertir:
-  - mount -o remount,OPCIONES PUNTO combina las opciones con las actuales;
+  - mount -o remount,OPCIONES PUNTO combina las opciones con las actuales.
+    Si el punto figura en fstab, como mount(8) con un solo argumento, aplica
+    primero las de fstab y después las de -o;
   - mount -o remount PUNTO, sin opciones, toma las de fstab si el punto figura
-    ahí y, si no, conserva las actuales, como mount(8);
+    ahí y, si no, conserva las actuales;
+  - las opciones se guardan como las muestra el kernel: exec, suid y dev no
+    aparecen nunca (solo sus "no"), size= va en k como en tmpfs, y /proc no
+    muestra hidepid ni gid con su valor por defecto (0), como
+    proc_show_options();
+  - state/fallos.json ({"mount": [PUNTO, ...]}) hace fallar el remontaje de
+    esos puntos, para probar que enable no deja nada a medias;
   - systemctl recuerda enabled, active y masked por unidad.
 """
 import json
@@ -67,6 +75,24 @@ def _combinar(actuales: list, nuevas: list) -> list:
     return res
 
 
+def _tamano_en_k(op: str) -> str:
+    valor = op.split("=", 1)[1]
+    factor = {"k": 1, "m": 1024, "g": 1024 * 1024}
+    if valor[:-1].isdigit() and valor[-1:].lower() in factor:
+        return f"size={int(valor[:-1]) * factor[valor[-1].lower()]}k"
+    if valor.isdigit():                              # bytes
+        return f"size={int(valor) // 1024}k"
+    return op                                        # p. ej. size=50%
+
+
+def _normalizar(punto: str, opciones: list) -> list:
+    ocultas = {"exec", "suid", "dev"}
+    if punto == "/proc":
+        ocultas |= {"hidepid=0", "hidepid=off", "gid=0"}
+    return [_tamano_en_k(o) if o.startswith("size=") else o
+            for o in opciones if o not in ocultas]
+
+
 def _fstab_opciones(punto: str):
     fstab = ROOT / "etc" / "fstab"
     if not fstab.exists():
@@ -97,13 +123,16 @@ def mount() -> int:
     if punto not in montajes:
         print(f"mount: {punto}: not mounted", file=sys.stderr)
         return 32
+    if punto in _cargar("fallos", {}).get("mount", []):
+        print(f"mount: {punto}: permission denied (simulado)", file=sys.stderr)
+        return 32
     nuevas = [o for o in lista if o != "remount"]
-    if not nuevas:
-        de_fstab = _fstab_opciones(punto)
-        if de_fstab is None:
-            return 0                                 # conserva las actuales
-        nuevas = de_fstab.split(",")
-    montajes[punto] = _combinar(montajes[punto], nuevas)
+    de_fstab = _fstab_opciones(punto)
+    if de_fstab is not None:
+        nuevas = de_fstab.split(",") + nuevas        # fstab primero, -o gana
+    elif not nuevas:
+        return 0                                     # conserva las actuales
+    montajes[punto] = _normalizar(punto, _combinar(montajes[punto], nuevas))
     _guardar("mounts", montajes)
     return 0
 
@@ -211,6 +240,46 @@ def groupadd() -> int:
     return 0
 
 
+def _escribir_grupos(grupos: list) -> None:
+    (ROOT / "etc" / "group").write_text("\n".join(grupos) + "\n", encoding="utf-8")
+
+
+def groupdel() -> int:
+    nombre = ARGS[-1]
+    grupos = _lineas("group")
+    linea = next((g for g in grupos if g.split(":")[0] == nombre), None)
+    if linea is None:
+        print(f"groupdel: group '{nombre}' does not exist", file=sys.stderr)
+        return 6
+    gid = linea.split(":")[2]
+    if any(u.split(":")[3] == gid for u in _lineas("passwd")):
+        print("groupdel: cannot remove the primary group of a user", file=sys.stderr)
+        return 8
+    _escribir_grupos([g for g in grupos if g != linea])
+    return 0
+
+
+def gpasswd() -> int:
+    # solo gpasswd -d USUARIO GRUPO, lo que usa Lockd
+    if len(ARGS) != 3 or ARGS[0] != "-d":
+        return 2
+    usuario, grupo = ARGS[1], ARGS[2]
+    grupos = _lineas("group")
+    for i, g in enumerate(grupos):
+        campos = g.split(":")
+        if campos[0] == grupo:
+            miembros = [m for m in campos[3].split(",") if m]
+            if usuario not in miembros:
+                print(f"gpasswd: user '{usuario}' is not a member of '{grupo}'", file=sys.stderr)
+                return 3
+            campos[3] = ",".join(m for m in miembros if m != usuario)
+            grupos[i] = ":".join(campos)
+            _escribir_grupos(grupos)
+            return 0
+    print(f"gpasswd: group '{grupo}' does not exist", file=sys.stderr)
+    return 3
+
+
 def usermod() -> int:
     grupo = None
     for i, a in enumerate(ARGS):
@@ -249,7 +318,8 @@ COMANDOS = {
     "mount": mount, "findmnt": findmnt, "systemctl": systemctl,
     "apt-get": apt_get, "aa-enforce": lambda: aa_modo("enforce"),
     "aa-complain": lambda: aa_modo("complain"), "getent": getent,
-    "groupadd": groupadd, "usermod": usermod, "id": id_,
+    "groupadd": groupadd, "groupdel": groupdel, "usermod": usermod,
+    "gpasswd": gpasswd, "id": id_,
     "fail2ban-client": lambda: 0, "lockd-stubs": centinela,
 }
 

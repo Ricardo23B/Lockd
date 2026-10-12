@@ -157,10 +157,15 @@ write_file() {
         sed 's/^/    | /'
         return 0
     fi
-    tmp="$(mktemp "${dest}.lockd.XXXXXX")"
-    cat > "$tmp"
-    chmod "$mode" "$tmp"
-    mv -f "$tmp" "$dest"
+    # Cada paso se comprueba, también cuando la llaman desde un if o un ||
+    # (ahí bash no aplica set -e): $dest se reemplaza solo con el contenido
+    # completo.
+    tmp="$(mktemp "${dest}.lockd.XXXXXX")" || return 1
+    if cat > "$tmp" && chmod "$mode" "$tmp" && mv -f "$tmp" "$dest"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
 }
 
 # ── Línea base por ciclo de activación ───────────────────────────────────────
@@ -216,6 +221,316 @@ baseline_end() {
     local mod="$1"
     apply "Cerrar ciclo de línea base de '$mod'" \
         rm -f "$(_baseline_marker "$mod")" "${BACKUP_BASE}/${mod}/.absent"
+}
+
+# ── Reversión exacta: fstab, opciones de montaje y grupos ────────────────────
+# Un módulo que endurece un punto de montaje deja tres rastros, y disable
+# deshace exactamente esos, sin tocar lo ajeno:
+#   - su línea en fstab, marcada al final con "# <marca>". Si el usuario ya
+#     tenía una entrada para ese punto, se comenta con "# <marca>:original " y
+#     la línea de Lockd suma sus opciones a las del usuario, así queda una
+#     sola entrada activa por punto. La línea lleva explícitas las banderas
+#     restrictivas que el punto ya tenía en ejecución (nosuid, nodev, noexec):
+#     mount -o remount PUNTO y el arranque aplican las opciones de fstab, y
+#     así las mantienen (comprobado con util-linux 2.39, con la API de montaje
+#     nueva y con mount(2));
+#   - las opciones en ejecución previas, guardadas una vez por ciclo de
+#     activación (reaplicar enable las conserva). disable devuelve a su valor
+#     previo las opciones que el módulo toca y también nosuid, nodev y noexec,
+#     porque el remontaje mezcla las opciones de fstab;
+#   - los grupos que creó y los miembros que agregó.
+# enable es atómico: si el remontaje falla, fstab y lo guardado quedan como
+# estaban antes de esa ejecución y el script sale con error.
+
+_lockd_fstab() { printf '%s/etc/fstab' "$SYSROOT"; }
+
+_lockd_en_lista() {
+    # _lockd_en_lista "<a,b,c>" <elemento>: ¿está en la lista separada por comas?
+    [[ ",$1," == *",$2,"* ]]
+}
+
+_lockd_valor_opcion() {
+    # _lockd_valor_opcion "<opciones>" <clave>: imprime el valor de clave=valor
+    local o IFS=','
+    for o in $1; do
+        if [[ "$o" == "$2="* ]]; then
+            printf '%s\n' "${o#*=}"
+            return 0
+        fi
+    done
+}
+
+_lockd_banderas_restrictivas() {
+    # _lockd_banderas_restrictivas "<opciones>": las de nosuid,nodev,noexec presentes
+    local b
+    local -a res=()
+    for b in nosuid nodev noexec; do
+        if _lockd_en_lista "$1" "$b"; then res+=("$b"); fi
+    done
+    local IFS=','
+    printf '%s\n' "${res[*]}"
+}
+
+_lockd_opcion_contraria() {
+    case "$1" in
+        exec) echo noexec ;;  noexec) echo exec ;;
+        suid) echo nosuid ;;  nosuid) echo suid ;;
+        dev)  echo nodev ;;   nodev)  echo dev ;;
+        rw)   echo ro ;;      ro)     echo rw ;;
+    esac
+}
+
+_lockd_opciones_fusionar() {
+    # _lockd_opciones_fusionar "<base>" "<nuevas>": como mount, lo último gana.
+    # Cada opción nueva reemplaza a la misma clave (clave=valor) y a su
+    # contraria (exec/noexec, suid/nosuid, dev/nodev, rw/ro).
+    local base="$1" op o clave contraria
+    local -a res=() nuevas=() resto=()
+    IFS=',' read -r -a res <<< "$base"
+    IFS=',' read -r -a nuevas <<< "$2"
+    for op in "${nuevas[@]}"; do
+        [ -n "$op" ] || continue
+        clave=""
+        if [[ "$op" == *=* ]]; then clave="${op%%=*}="; fi
+        contraria="$(_lockd_opcion_contraria "$op")"
+        resto=()
+        for o in "${res[@]}"; do
+            if [ "$o" = "$op" ] || [ "$o" = "$contraria" ]; then continue; fi
+            if [ -n "$clave" ] && [[ "$o" == "$clave"* ]]; then continue; fi
+            resto+=("$o")
+        done
+        res=("${resto[@]}" "$op")
+    done
+    local IFS=','
+    printf '%s\n' "${res[*]}"
+}
+
+fstab_aplicar() {
+    # fstab_aplicar <marca> <origen> <punto> <tipo> <opciones> [conservar]
+    # Deja una sola entrada activa para <punto>: la de Lockd, marcada. Sus
+    # opciones: las de la línea del usuario si existía (que queda comentada),
+    # más [conservar] (las banderas restrictivas en ejecución), más <opciones>.
+    local marca="$1" origen="$2" punto="$3" tipo="$4" opciones="$5" conservar="${6:-}"
+    local fstab linea base="" f1 f2 f3 f4 f5 f6
+    local -a lineas=() salida=()
+    fstab="$(_lockd_fstab)"
+    if [ -f "$fstab" ]; then mapfile -t lineas < "$fstab"; fi
+    for linea in "${lineas[@]}"; do
+        if [[ "$linea" == *" # $marca" ]]; then
+            continue                                  # la propia: se regenera
+        elif [[ "$linea" == "# $marca:original "* ]]; then
+            base="${linea#"# $marca:original "}"      # reaplicación
+            salida+=("$linea")
+            continue
+        fi
+        read -r f1 f2 _ <<< "$linea"
+        if [ -n "${f1:-}" ] && [[ "$f1" != \#* ]] && [ "${f2:-}" = "$punto" ]; then
+            if [ -z "$base" ]; then base="$linea"; fi
+            salida+=("# $marca:original $linea")
+        else
+            salida+=("$linea")
+        fi
+    done
+    local propias
+    if [ -n "$base" ]; then
+        read -r f1 f2 f3 f4 f5 f6 _ <<< "$base"
+        propias="$(_lockd_opciones_fusionar "$f4" "$conservar")"
+        propias="$(_lockd_opciones_fusionar "$propias" "$opciones")"
+        salida+=("$f1 $f2 $f3 $propias ${f5:-0} ${f6:-0} # $marca")
+    else
+        propias="$(_lockd_opciones_fusionar "$conservar" "$opciones")"
+        salida+=("$origen $punto $tipo $propias 0 0 # $marca")
+    fi
+    printf '%s\n' "${salida[@]}" | write_file "$fstab" 0644
+}
+
+fstab_quitar() {
+    # fstab_quitar <marca>: borra la línea de Lockd y descomenta la del usuario.
+    local marca="$1" fstab linea cambio=0
+    local -a lineas=() salida=()
+    fstab="$(_lockd_fstab)"
+    [ -f "$fstab" ] || return 0
+    mapfile -t lineas < "$fstab"
+    for linea in "${lineas[@]}"; do
+        if [[ "$linea" == *" # $marca" ]]; then
+            cambio=1
+        elif [[ "$linea" == "# $marca:original "* ]]; then
+            salida+=("${linea#"# $marca:original "}")
+            cambio=1
+        else
+            salida+=("$linea")
+        fi
+    done
+    [ "$cambio" = 1 ] || return 0
+    if [ "${#salida[@]}" -gt 0 ]; then printf '%s\n' "${salida[@]}"; fi | write_file "$fstab" 0644
+}
+
+_lockd_estado_montaje() {
+    # _lockd_estado_montaje <mod> <punto>: archivo con las opciones previas
+    local nombre="${2#/}"
+    nombre="${nombre//\//_}"
+    printf '%s/%s/montaje-%s.previas' "$BACKUP_BASE" "$1" "${nombre:-raiz}"
+}
+
+montaje_guardado() {
+    # montaje_guardado <mod> <punto>: ¿este ciclo ya guardó las opciones?
+    [ -f "$(_lockd_estado_montaje "$1" "$2")" ]
+}
+
+montaje_olvidar() {
+    # montaje_olvidar <mod> <punto>: descarta lo guardado (enable que se deshace)
+    rm -f "$(_lockd_estado_montaje "$1" "$2")"
+}
+
+montaje_guardar() {
+    # montaje_guardar <mod> <punto>: guarda las opciones en ejecución, una vez
+    # por ciclo. Devuelve 1 si <punto> no está montado.
+    local estado opciones
+    estado="$(_lockd_estado_montaje "$1" "$2")"
+    [ -f "$estado" ] && return 0
+    opciones="$(findmnt -n -o OPTIONS "$2" 2>/dev/null)" || return 1
+    opciones="${opciones##*$'\n'}"                    # el montaje de arriba
+    mkdir -p "$(dirname "$estado")"
+    printf '%s\n' "$opciones" > "$estado"
+}
+
+montaje_restaurar() {
+    # montaje_restaurar <mod> <punto> <opción...>: devuelve cada opción que el
+    # módulo toca, y siempre nosuid, nodev y noexec, a su valor previo, y
+    # olvida lo guardado. Opciones con regla: noexec, nosuid, nodev (vuelven a
+    # la restrictiva o a su contraria) y hidepid, gid (sin valor previo: 0, el
+    # valor por defecto del kernel).
+    # Sin opciones guardadas (activado con una versión anterior de Lockd) no
+    # adivina las banderas: las deja como están y avisa.
+    local mod="$1" punto="$2" estado previas="" op valor
+    local -a lista=()
+    shift 2
+    estado="$(_lockd_estado_montaje "$mod" "$punto")"
+    if [ -f "$estado" ]; then
+        previas="$(cat "$estado")"
+    else
+        warn "No hay opciones previas guardadas de $punto: exec/suid/dev quedan como están hasta reiniciar."
+    fi
+    local -a ops=("$@")
+    for op in nosuid nodev noexec; do
+        if ! _lockd_en_lista "$(IFS=','; echo "${ops[*]}")" "$op"; then ops+=("$op"); fi
+    done
+    for op in "${ops[@]}"; do
+        case "$op" in
+            noexec|nosuid|nodev)
+                [ -f "$estado" ] || continue
+                if _lockd_en_lista "$previas" "$op"; then lista+=("$op"); else lista+=("${op#no}"); fi
+                ;;
+            hidepid|gid)
+                valor="$(_lockd_valor_opcion "$previas" "$op")"
+                lista+=("$op=${valor:-0}")
+                ;;
+            *)
+                error "montaje_restaurar: '$op' no tiene regla de restauración."
+                return 1
+                ;;
+        esac
+    done
+    if [ "${#lista[@]}" -gt 0 ]; then
+        local IFS=','
+        mount -o "remount,${lista[*]}" "$punto" || return 1
+    fi
+    rm -f "$estado"
+}
+
+endurecer_montaje() {
+    # endurecer_montaje <mod> <marca> <origen> <punto> <tipo> <opciones>
+    # Guarda las opciones previas, deja la línea de Lockd en fstab y remonta.
+    # Si el remontaje falla, fstab y lo guardado vuelven a como estaban antes
+    # de esta ejecución y devuelve 1.
+    local mod="$1" marca="$2" origen="$3" punto="$4" tipo="$5" opciones="$6"
+    local fstab estado previo conservar estado_nuevo=0
+    fstab="$(_lockd_fstab)"
+    estado="$(_lockd_estado_montaje "$mod" "$punto")"
+    [ -f "$estado" ] || estado_nuevo=1
+    if ! montaje_guardar "$mod" "$punto"; then
+        error "$punto no está montado."
+        return 1
+    fi
+    conservar="$(_lockd_banderas_restrictivas "$(cat "$estado")")"
+    # Se llama desde un if o un ||, donde bash no aplica set -e: cada paso se
+    # comprueba a mano.
+    previo="$(mktemp "${fstab}.lockd-previo.XXXXXX")" || return 1
+    if ! cp -p "$fstab" "$previo"; then
+        rm -f "$previo"
+        error "No se pudo copiar $fstab: no se aplicó nada."
+        return 1
+    fi
+    if fstab_aplicar "$marca" "$origen" "$punto" "$tipo" "$opciones" "$conservar" \
+        && mount -o "remount,$opciones" "$punto"; then
+        rm -f "$previo"
+        return 0
+    fi
+    mv -f "$previo" "$fstab" || error "No se pudo devolver $fstab a su estado previo."
+    if [ "$estado_nuevo" = 1 ]; then rm -f "$estado"; fi
+    error "No se pudo aplicar $punto: fstab quedó como estaba y no se aplicó nada."
+    return 1
+}
+
+revertir_montaje() {
+    # revertir_montaje <mod> <marca> <punto> <opción...>
+    # Primero fstab: mount -o remount PUNTO mezcla las opciones de fstab.
+    local mod="$1" marca="$2" punto="$3"
+    shift 3
+    fstab_quitar "$marca"
+    montaje_restaurar "$mod" "$punto" "$@"
+}
+
+_lockd_estado_grupos() { printf '%s/%s/grupos.estado' "$BACKUP_BASE" "$1"; }
+
+grupos_registrados() {
+    # grupos_registrados <mod>: ¿este ciclo ya creó grupos o sumó miembros?
+    [ -f "$(_lockd_estado_grupos "$1")" ]
+}
+
+grupo_asegurar() {
+    # grupo_asegurar <mod> <grupo>: crea el grupo si no existe y lo anota.
+    local estado
+    getent group "$2" >/dev/null && return 0
+    groupadd "$2"
+    estado="$(_lockd_estado_grupos "$1")"
+    mkdir -p "$(dirname "$estado")"
+    printf 'creado %s\n' "$2" >> "$estado"
+}
+
+grupo_sumar() {
+    # grupo_sumar <mod> <grupo> <usuario>: si el usuario existe y no es
+    # miembro, lo agrega y lo anota. Los miembros previos no se anotan.
+    local mod="$1" grupo="$2" usuario="$3" estado miembros
+    id "$usuario" &>/dev/null || return 0
+    miembros="$(getent group "$grupo" | cut -d: -f4)"
+    _lockd_en_lista "$miembros" "$usuario" && return 0
+    usermod -aG "$grupo" "$usuario"
+    estado="$(_lockd_estado_grupos "$mod")"
+    mkdir -p "$(dirname "$estado")"
+    printf 'miembro %s %s\n' "$grupo" "$usuario" >> "$estado"
+}
+
+grupo_revertir() {
+    # grupo_revertir <mod>: quita los miembros que agregó Lockd y borra los
+    # grupos que creó si quedaron vacíos. Lo previo a Lockd no se toca.
+    local estado tipo grupo usuario
+    estado="$(_lockd_estado_grupos "$1")"
+    [ -f "$estado" ] || return 0
+    while read -r tipo grupo usuario; do
+        if [ "$tipo" = miembro ]; then
+            gpasswd -d "$usuario" "$grupo" >/dev/null 2>&1 || true
+        fi
+    done < "$estado"
+    while read -r tipo grupo _; do
+        [ "$tipo" = creado ] || continue
+        if [ -n "$(getent group "$grupo" | cut -d: -f4)" ]; then
+            warn "El grupo $grupo tiene miembros que no agregó Lockd: se conserva."
+        else
+            groupdel "$grupo" || warn "No se pudo borrar el grupo $grupo."
+        fi
+    done < "$estado"
+    rm -f "$estado"
 }
 
 # ── sshd ─────────────────────────────────────────────────────────────────────
