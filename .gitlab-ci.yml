@@ -42,7 +42,7 @@ lint:
     # El modo test (LOCKD_SYSROOT) no corre como root: arriba se saltean los
     # tests que lo usan y acá corren con un usuario sin privilegios.
     - useradd --create-home lockd-ci
-    - chown -R lockd-ci: "$CI_PROJECT_DIR"
+    - chown -R lockd-ci:lockd-ci "$CI_PROJECT_DIR"
     - setpriv --reuid=lockd-ci --regid=lockd-ci --init-groups env HOME=/home/lockd-ci python -m pytest tests/ -v --tb=short
   artifacts:
     when: on_failure
