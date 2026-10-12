@@ -21,7 +21,7 @@ SUID_LIST="$BACKUP_DIR/suid_removed.txt"
 AUDIT_LIST="$BACKUP_DIR/suid_audit.txt"
 
 # Rutas a escanear (override solo para tests; el helper pasa entorno mínimo)
-SEARCH_PATHS="${LOCKD_SUID_SEARCH_PATHS:-/usr /bin /sbin}"
+SEARCH_PATHS="${LOCKD_SUID_SEARCH_PATHS:-${SYSROOT}/usr ${SYSROOT}/bin ${SYSROOT}/sbin}"
 
 # DENYLIST: binarios SUID de riesgo conocido cuya pérdida de SUID tiene
 # impacto acotado y documentado (los usuarios no-root pierden esa función;

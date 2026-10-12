@@ -2,7 +2,7 @@
 set -euo pipefail
 source "$(dirname "$0")/../_common.sh"
 check_root
-DROP_IN="/etc/systemd/system/tmp.mount.d/lockd-secure.conf"
+DROP_IN="${SYSROOT}/etc/systemd/system/tmp.mount.d/lockd-secure.conf"
 if [ "$DRY_RUN" = "1" ]; then
     warn "[DRY-RUN] Create $DROP_IN"
     warn "[DRY-RUN] systemctl daemon-reload"
@@ -10,7 +10,7 @@ if [ "$DRY_RUN" = "1" ]; then
     exit 0
 fi
 mkdir -p "$(dirname "$DROP_IN")"
-backup /etc/fstab secure_tmp_partition
+backup "${SYSROOT}/etc/fstab" secure_tmp_partition
 cat > "$DROP_IN" << 'CONF'
 [Mount]
 Options=mode=1777,strictatime,nosuid,nodev,noexec

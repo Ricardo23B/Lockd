@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "$0")/../_common.sh"
 check_root
 
-CONF="/etc/fail2ban/jail.d/lockd-ssh.conf"
+CONF="${SYSROOT}/etc/fail2ban/jail.d/lockd-ssh.conf"
 
 if [ "$DRY_RUN" = "1" ]; then
     warn "[DRY-RUN] Would: apt install -y fail2ban"
