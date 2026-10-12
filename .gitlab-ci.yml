@@ -39,6 +39,11 @@ lint:
     # {} + (no \;): con \; find devuelve 0 aunque shellcheck falle
     - find modules/ -name "*.sh" -exec shellcheck --severity=warning {} +
     - pytest tests/ -v --tb=short
+    # El modo test (LOCKD_SYSROOT) no corre como root: arriba se saltean los
+    # tests que lo usan y acá corren con un usuario sin privilegios.
+    - useradd --create-home lockd-ci
+    - chown -R lockd-ci: "$CI_PROJECT_DIR"
+    - setpriv --reuid=lockd-ci --regid=lockd-ci --init-groups env HOME=/home/lockd-ci python -m pytest tests/ -v --tb=short
   artifacts:
     when: on_failure
     paths:

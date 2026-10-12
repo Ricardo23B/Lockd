@@ -42,6 +42,7 @@ ENABLE_SH = """\
 set -euo pipefail
 echo "args: $*"
 echo "DRY_RUN=${DRY_RUN:-0} OP=${LOCKD_OP_ID:-none}"
+echo "SYSROOT=${LOCKD_SYSROOT:-unset}"
 # simular un backup registrado en el manifiesto de la operación
 if [ -n "${LOCKD_MANIFEST:-}" ]; then
     printf '%s|demo_mod|/etc/fake.conf|/var/lib/lockd/backups/demo/fake.bak\\n' \
@@ -120,6 +121,15 @@ class TestHelperEjecucion:
         assert r.returncode == 7
         last = _journal_entries()[-1]
         assert last["ok"] is False and last["rc"] == 7
+
+    def test_no_propaga_lockd_sysroot(self, tmp_path):
+        # El modo test de _common.sh nunca debe poder activarse a través del
+        # helper: aunque el invocante la tenga, la variable no llega al script.
+        mdir = _make_catalog(tmp_path)
+        r = _run_helper("enable", "demo_mod", "--modules-dir", str(mdir),
+                        env_extra={"LOCKD_SYSROOT": str(tmp_path)})
+        assert r.returncode == 0, r.stderr
+        assert "SYSROOT=unset" in r.stdout
 
 
 @requires_root

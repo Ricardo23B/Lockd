@@ -16,9 +16,64 @@ for __lockd_arg in "$@"; do
     [ "$__lockd_arg" = "--dry-run" ] && DRY_RUN=1
 done
 unset __lockd_arg
-BACKUP_BASE="${LOCKD_BACKUP_BASE:-/var/lib/lockd/backups}"
 
-check_root() { [ "$EUID" -eq 0 ] || { error "Requiere root."; exit 1; }; }
+# ── Modo test: raíz alternativa (LOCKD_SYSROOT) ──────────────────────────────
+# Solo para tests: redirige las rutas del sistema de los módulos a un árbol de
+# prueba ($SYSROOT/etc/fstab, ...). Nunca llega desde una ejecución real: el
+# helper privilegiado arma un entorno mínimo sin esta variable y pkexec
+# descarta el entorno del invocante. Una raíz que resuelve a "/" es el modo
+# normal. En modo test todo falla cerrado:
+#   - no corre como root: una ruta sin ${SYSROOT} o un comando llamado con
+#     ruta absoluta fallan por permisos en vez de tocar el sistema real;
+#   - antes de nada ejecuta el centinela $SYSROOT/.stubs/bin/lockd-stubs y
+#     aborta si falta o no corre. Con /tmp montado noexec los stubs están pero
+#     no se pueden ejecutar, y bash seguiría buscando en el PATH hasta dar con
+#     el comando real;
+#   - el PATH queda SOLO en $SYSROOT/.stubs/bin: lo que el árbol no provee
+#     (stub o herramienta inocua) no existe, y command_not_found_handle lo
+#     anota en $SYSROOT/.stubs/faltantes para que el test falle aunque el
+#     módulo descarte el error;
+#   - sin bus del sistema ni terminal: un systemctl alcanzado igual no llega a
+#     systemd ni puede abrir un pedido de contraseña de polkit;
+#   - avisa por stderr en cada ejecución.
+SYSROOT=""
+if [ -n "${LOCKD_SYSROOT:-}" ]; then
+    # readlink -f normaliza "//", "/." y symlinks (pwd -P conserva "//")
+    __lockd_root="$(readlink -f -- "$LOCKD_SYSROOT" 2>/dev/null)" || __lockd_root=""
+    if [ -z "$__lockd_root" ] || [ ! -d "$__lockd_root" ]; then
+        error "LOCKD_SYSROOT no es un directorio: $LOCKD_SYSROOT"
+        exit 1
+    fi
+    if [ "$__lockd_root" != "/" ]; then
+        if [ "$EUID" -eq 0 ]; then
+            error "El modo test no corre como root: una ruta sin \${SYSROOT} tocaría el sistema real."
+            exit 1
+        fi
+        if [ "$("$__lockd_root/.stubs/bin/lockd-stubs" 2>/dev/null)" != "ok" ]; then
+            error "Faltan o no se pueden ejecutar los comandos simulados de $__lockd_root/.stubs/bin (¿montado con noexec?): se aborta para no tocar el sistema real."
+            exit 1
+        fi
+        SYSROOT="$__lockd_root"
+        PATH="$SYSROOT/.stubs/bin"           # cerrado a propósito
+        export PATH
+        export DBUS_SYSTEM_BUS_ADDRESS="unix:path=$SYSROOT/.stubs/sin-bus"
+        exec </dev/null
+        command_not_found_handle() {
+            printf '%s\n' "$1" >> "$SYSROOT/.stubs/faltantes"
+            echo "[lockd] MODO TEST: '$1' no tiene stub ni está entre las herramientas permitidas." >&2
+            return 127
+        }
+        echo "[lockd] MODO TEST: raíz $SYSROOT; no se modifica el sistema real." >&2
+    fi
+    unset __lockd_root
+fi
+BACKUP_BASE="${LOCKD_BACKUP_BASE:-${SYSROOT}/var/lib/lockd/backups}"
+
+check_root() {
+    # Modo test: corre sin root por diseño (el bloque de arriba lo exige).
+    [ -n "$SYSROOT" ] && return 0
+    [ "$EUID" -eq 0 ] || { error "Requiere root."; exit 1; }
+}
 check_cmd()  { command -v "$1" &>/dev/null || { error "Falta: $1 (apt install $1)"; exit 1; }; }
 
 backup() {
@@ -73,7 +128,11 @@ apply() {
 
 # Busca sysctl en rutas habituales de Debian (puede estar en /sbin, no en PATH por defecto)
 find_sysctl() {
-    for candidate in sysctl /sbin/sysctl /usr/sbin/sysctl; do
+    # En modo test solo cuenta el PATH cerrado: una ruta absoluta saltearía
+    # los stubs y llegaría al sysctl real.
+    local candidates="sysctl /sbin/sysctl /usr/sbin/sysctl" candidate
+    [ -n "$SYSROOT" ] && candidates="sysctl"
+    for candidate in $candidates; do
         if command -v "$candidate" &>/dev/null 2>&1; then
             echo "$candidate"
             return 0
