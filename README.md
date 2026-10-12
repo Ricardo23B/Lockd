@@ -17,6 +17,29 @@ from a graphical desktop, from the CLI, or on a remote server over SSH.
 
 ---
 
+## Status and known limitations
+
+Lockd is **beta**. Read these limitations before using it on a system you
+cannot rebuild:
+
+- **Reverting a module does not yet restore the previous state for 7 of the
+  16 modules.** Disabling `secure_shared_memory`, `secure_tmp_partition` or
+  `hide_procs_nonroot` does not restore the previous runtime mount options,
+  and disabling `secure_shared_memory` or `hide_procs_nonroot` can drop the
+  other's line from `/etc/fstab`. Disabling `automatic_security_updates`,
+  `install_fail2ban` or `apparmor_enforce_mode` can turn off protections that
+  were active before Lockd. `restrict_suid_binaries` loses its restore list
+  if it is enabled twice. Fixes are in progress and tracked by
+  `tests/test_reversibility.py`.
+- Four more modules revert approximately: `disable_core_dumps`,
+  `disable_ctrl_alt_del`, `restrict_compilers` and `clamav_scanner`.
+- Transactional rollback across modules is not implemented yet.
+- The interface and the module descriptions are in Spanish; English is
+  planned.
+- Debian-based systems only (Debian, Ubuntu, Parrot OS).
+
+---
+
 ## Features
 
 - **Security Scan** with a 0–100 score and suggested fixes.
@@ -27,7 +50,6 @@ from a graphical desktop, from the CLI, or on a remote server over SSH.
 - **Advanced mode**: individual per-category toggles with risk and impact details.
 - **Dry-run**: full simulation without modifying the system.
 - **ClamAV** integrated as a module category (optional antivirus scanning).
-- Automatic backups before every change.
 - Privileged operations via **Polkit** (pkexec) — never hardcoded sudo.
 
 ---
@@ -106,6 +128,27 @@ sudo apt install ufw fail2ban
 ---
 
 ## Installation
+
+The recommended installation is the Debian package: it installs the
+privileged helper and the module catalog in root-owned paths, and every
+operation is recorded in the journal (see [SECURITY.md](SECURITY.md)). Until
+a release publishes ready-made packages, build them from the source tree:
+
+```bash
+sudo apt install build-essential debhelper dh-python pybuild-plugin-pyproject \
+    python3-all python3-setuptools python3-yaml
+git clone https://gitlab.com/Ricardo23B/Lockd.git
+cd Lockd
+dpkg-buildpackage -us -uc -b
+sudo apt install ../lockd_*.deb ../lockd-gtk_*.deb   # lockd-gtk is optional
+```
+
+### Development mode (`setup.sh`)
+
+> **Warning:** `setup.sh` runs Lockd from the source checkout without the
+> privileged helper. `pkexec` then executes module scripts from a directory
+> your user can write to, and no operation journal is kept. Use it to work
+> on Lockd, not to harden a system you depend on.
 
 ```bash
 git clone https://gitlab.com/Ricardo23B/Lockd.git
