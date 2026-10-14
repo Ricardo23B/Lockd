@@ -397,7 +397,6 @@ def test_disable_sin_opciones_guardadas_no_adivina(sistema):
     assert "No hay opciones previas guardadas" in r.stdout
 
 
-@_deuda("un segundo enable vacía la lista y disable no restaura el SUID (miércoles)")
 def test_suid_reaplicar_no_pierde_la_lista(sistema):
     # aplicar un nivel vuelve a ejecutar enable de todos sus módulos
     _binarios_suid(sistema)

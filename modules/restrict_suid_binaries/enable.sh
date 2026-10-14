@@ -58,7 +58,9 @@ if [ "$DRY_RUN" = "1" ]; then
 fi
 
 mkdir -p "$BACKUP_DIR"
-: > "$SUID_LIST"
+# Reaplicar enable conserva la lista: los binarios ya tratados no vuelven a
+# aparecer con SUID, y la lista es lo que permite restaurarlos.
+[ -f "$SUID_LIST" ] || : > "$SUID_LIST"
 : > "$AUDIT_LIST"
 
 removed=0
@@ -71,7 +73,7 @@ while IFS= read -r -d "" bin; do
     fi
     if in_list "$name" "$DENYLIST"; then
         info "Removiendo SUID: $bin"
-        echo "$bin" >> "$SUID_LIST"
+        grep -qxF -- "$bin" "$SUID_LIST" || echo "$bin" >> "$SUID_LIST"
         chmod u-s "$bin"
         removed=$((removed + 1))
         if [ -n "${LOCKD_MANIFEST:-}" ]; then
