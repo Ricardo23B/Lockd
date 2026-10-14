@@ -124,6 +124,8 @@ exit 0
 | Una línea de un archivo compartido (`/etc/fstab`) | `fstab_aplicar marca ...` | `fstab_quitar marca` |
 | Las opciones de un punto de montaje | `endurecer_montaje MOD marca origen punto tipo opciones` | `revertir_montaje MOD marca punto opción...` |
 | Grupos y miembros | `grupo_asegurar MOD grupo`, `grupo_sumar MOD grupo usuario` | `grupo_revertir MOD` |
+| Un servicio (habilitado, activo) | `servicio_guardar MOD unidad` | `servicio_restaurar MOD unidad` |
+| Paquetes que instala | `paquete_instalar MOD paquete...` | `paquetes_avisar MOD` |
 
 - Un archivo que comparten varios módulos se maneja por líneas: en
   `/etc/fstab` cada módulo tiene la suya, marcada al final con `# marca`, y
@@ -139,6 +141,14 @@ exit 0
   además de `nosuid`, `nodev` y `noexec`.
 - `grupo_revertir` quita solo los miembros que agregó Lockd y borra el grupo
   solo si lo creó Lockd y quedó vacío.
+- `servicio_guardar` anota una vez por ciclo si la unidad estaba habilitada y
+  activa, y `servicio_restaurar` la deja igual: un servicio que corría antes
+  de Lockd sigue corriendo. Se llama antes de instalar el paquete, porque
+  Debian arranca el servicio al instalarlo.
+- Los paquetes que instala Lockd quedan instalados al desactivar.
+  `paquete_instalar` anota cuáles instaló, `paquetes_avisar` lo informa en
+  disable, y en `modules.yaml` el módulo los declara en `dependencies` con
+  `self_installing: true`, para que `lockd info` lo muestre.
 
 ---
 
