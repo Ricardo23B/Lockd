@@ -3,8 +3,8 @@
 tests/stubs/lockd_stub.py — Comandos del sistema simulados para el modo test
 
 Un solo programa que se comporta según el nombre con el que lo invocan
-(mount, findmnt, systemctl, apt-get, aa-enforce, aa-complain, getent,
-groupadd, groupdel, usermod, gpasswd, id, fail2ban-client). Los tests lo copian a
+(mount, findmnt, systemctl, apt-get, dpkg-query, aa-enforce, aa-complain,
+getent, groupadd, groupdel, usermod, gpasswd, id, fail2ban-client). Los tests lo copian a
 $LOCKD_SYSROOT/.stubs/bin/<comando>, junto con el centinela lockd-stubs:
 _common.sh lo ejecuta antes de nada (si no responde "ok", aborta) y deja el
 PATH solo en ese directorio.
@@ -22,9 +22,12 @@ revertir:
     aparecen nunca (solo sus "no"), size= va en k como en tmpfs, y /proc no
     muestra hidepid ni gid con su valor por defecto (0), como
     proc_show_options();
-  - state/fallos.json ({"mount": [PUNTO, ...]}) hace fallar el remontaje de
-    esos puntos, para probar que enable no deja nada a medias;
-  - systemctl recuerda enabled, active y masked por unidad.
+  - state/fallos.json ({"mount": [PUNTO, ...], "systemctl": [UNIDAD, ...]})
+    hace fallar el remontaje de esos puntos o el arranque de esas unidades,
+    para probar que enable no deja nada a medias;
+  - systemctl recuerda enabled, active y masked por unidad;
+  - apt-get install anota el paquete en state/pkgs.json y, como hace Debian
+    al instalar, habilita y arranca su servicio; dpkg-query lo consulta.
 """
 import json
 import sys
@@ -164,6 +167,16 @@ def systemctl() -> int:
 
     ahora = "--now" in banderas
     silencio = "--quiet" in banderas or "-q" in banderas
+    fallan = _cargar("fallos", {}).get("systemctl", [])
+    if accion in ("enable", "start", "restart", "reload") and any(n in fallan for n in unidades):
+        print(f"Job for {unidades[0]}.service failed (simulado).", file=sys.stderr)
+        return 1
+    if accion == "reload":
+        for nombre in unidades:
+            if not estado.get(nombre, {}).get("active"):
+                print(f"{nombre}.service is not active, cannot reload.", file=sys.stderr)
+                return 1
+        return 0
     if accion in ("is-active", "is-enabled"):
         nombre = unidades[0] if unidades else ""
         datos = estado.get(nombre, {"enabled": False, "active": False})
@@ -194,15 +207,34 @@ def systemctl() -> int:
     return 0
 
 
+SERVICIO_DEL_PAQUETE = {"fail2ban": "fail2ban", "unattended-upgrades": "unattended-upgrades"}
+
+
 def apt_get() -> int:
     if "install" in ARGS:
         paquetes = _cargar("pkgs", [])
+        unidades = _cargar("units", {})
         idx = ARGS.index("install")
         for p in ARGS[idx + 1:]:
             if not p.startswith("-") and p not in paquetes:
                 paquetes.append(p)
+                if p in SERVICIO_DEL_PAQUETE:
+                    unidades[SERVICIO_DEL_PAQUETE[p]] = {"enabled": True, "active": True, "masked": False}
         _guardar("pkgs", paquetes)
+        _guardar("units", unidades)
     return 0
+
+
+def dpkg_query() -> int:
+    nombre = ARGS[-1] if ARGS else ""
+    if nombre in _cargar("pkgs", []):
+        if any(a.startswith("-f") or a.startswith("--showformat") for a in ARGS):
+            print("install ok installed", end="")
+        else:
+            print(f"{nombre}\t1.0")
+        return 0
+    print(f"dpkg-query: no packages found matching {nombre}", file=sys.stderr)
+    return 1
 
 
 def aa_modo(modo: str) -> int:
@@ -316,7 +348,7 @@ def centinela() -> int:
 
 COMANDOS = {
     "mount": mount, "findmnt": findmnt, "systemctl": systemctl,
-    "apt-get": apt_get, "aa-enforce": lambda: aa_modo("enforce"),
+    "apt-get": apt_get, "dpkg-query": dpkg_query, "aa-enforce": lambda: aa_modo("enforce"),
     "aa-complain": lambda: aa_modo("complain"), "getent": getent,
     "groupadd": groupadd, "groupdel": groupdel, "usermod": usermod,
     "gpasswd": gpasswd, "id": id_,

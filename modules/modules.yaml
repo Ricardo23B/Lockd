@@ -17,6 +17,8 @@
 #   disable_script  ruta relativa al script de desactivación
 #   check_script    ruta relativa al script de verificación de estado
 #   dependencies    paquetes apt necesarios para que funcione
+#   self_installing el script instala las dependencias que falten; quedan
+#                   instaladas al desactivar y lockd info lo indica
 #   supported_distros distros compatibles
 #
 # Para añadir un módulo: crear carpeta, scripts y añadir entrada aquí.
@@ -165,7 +167,8 @@ modules:
     enable_script: "automatic_security_updates/enable.sh"
     disable_script: "automatic_security_updates/disable.sh"
     check_script: "automatic_security_updates/check.sh"
-    dependencies: []
+    self_installing: true
+    dependencies: [unattended-upgrades]
     supported_distros: [debian, ubuntu]
 
   - id: disable_core_dumps

@@ -335,6 +335,9 @@ def _print_module_info(mod, verbose: bool = False):
     print(f"  Impacto:      {mod.impact}")
     print(f"  Servidor:     {'✓' if mod.server_safe else '✗'}")
     print(f"  Desktop:      {'✓' if mod.desktop_safe else '✗'}")
+    if mod.self_installing and mod.dependencies:
+        print(f"  Instala:      {', '.join(mod.dependencies)} "
+              f"{dim('(si faltan; quedan instalados al desactivar)')}")
     if mod.missing_deps:
         print(f"  {red('Deps faltantes:')} {', '.join(mod.missing_deps)}")
 

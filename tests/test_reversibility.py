@@ -34,7 +34,7 @@ import yaml
 ROOT        = Path(__file__).resolve().parent.parent
 MODULES_DIR = ROOT / "modules"
 STUB        = ROOT / "tests" / "stubs" / "lockd_stub.py"
-COMANDOS    = ["mount", "findmnt", "systemctl", "apt-get", "aa-enforce",
+COMANDOS    = ["mount", "findmnt", "systemctl", "apt-get", "dpkg-query", "aa-enforce",
                "aa-complain", "getent", "groupadd", "groupdel", "usermod", "gpasswd",
                "id", "lockd-stubs"]
 # Comandos reales que los módulos pueden usar en modo test: solo leen o escriben
@@ -180,10 +180,12 @@ class Sistema:
             f = st / f"{nombre}.json"
             return json.loads(f.read_text()) if f.exists() else {}
 
+        # una unidad deshabilitada, inactiva y sin máscara equivale a no tenerla
+        unidades = {n: d for n, d in leer("units").items() if any(d.values())}
         return {
             "archivos": archivos,
             "montajes": {p: sorted(o) for p, o in leer("mounts").items()},
-            "unidades": leer("units"),
+            "unidades": unidades,
             "apparmor": leer("aa"),
         }
 
@@ -214,7 +216,7 @@ def _ubuntu_con_actualizaciones(s: Sistema) -> None:
 
 
 def _fail2ban_propio(s: Sistema) -> None:
-    s.instalar_comando("fail2ban-client")
+    s._estado("pkgs", ["fail2ban"])
     s.escribir("etc/fail2ban/jail.d/propio.conf", "[sshd]\nenabled = true\nmaxretry = 3\n")
     s.unidades({"fail2ban": {"enabled": True, "active": True, "masked": False}})
 
@@ -269,10 +271,10 @@ CASOS = [
     pytest.param("hide_procs_nonroot", _proc_del_usuario),
     pytest.param("secure_tmp_partition", _sin_preparacion),
     pytest.param("secure_tmp_partition", _tmp_ya_endurecido),
-    pytest.param("automatic_security_updates", _ubuntu_con_actualizaciones, marks=_deuda(
-        "disable escribe 20auto-upgrades con \"0\" en vez de restaurar el previo (miércoles)")),
-    pytest.param("install_fail2ban", _fail2ban_propio, marks=_deuda(
-        "disable detiene y deshabilita un fail2ban que ya estaba activo (miércoles)")),
+    pytest.param("automatic_security_updates", _sin_preparacion),
+    pytest.param("automatic_security_updates", _ubuntu_con_actualizaciones),
+    pytest.param("install_fail2ban", _sin_preparacion),
+    pytest.param("install_fail2ban", _fail2ban_propio),
     pytest.param("restrict_suid_binaries", _binarios_suid),
     pytest.param("apparmor_enforce_mode", _perfiles_mixtos, marks=_deuda(
         "disable pasa a complain perfiles que estaban en enforce (jueves)")),
@@ -347,6 +349,44 @@ def test_hide_procs_conserva_nosuid_nodev_noexec_en_proc(sistema):
     assert linea[0].split()[3].startswith("nosuid,nodev,noexec,hidepid=invisible,gid=")
 
 
+def test_paquete_instalado_por_lockd_queda_y_se_avisa(sistema):
+    sistema.correr("install_fail2ban", "enable")
+    r = sistema.correr("install_fail2ban", "disable")
+    paquetes = json.loads((sistema.raiz / ".stubs" / "state" / "pkgs.json").read_text())
+    assert "fail2ban" in paquetes
+    assert "fail2ban sigue instalado (lo instaló Lockd)" in r.stdout
+    assert "fail2ban" not in sistema.estado()["unidades"]
+
+
+def test_fail2ban_previo_sigue_activo_y_se_recarga(sistema):
+    _fail2ban_propio(sistema)
+    sistema.correr("install_fail2ban", "enable")
+    sistema.correr("install_fail2ban", "disable")
+    assert sistema.estado()["unidades"]["fail2ban"] == {"enabled": True, "active": True, "masked": False}
+    llamadas = sistema.llamadas().splitlines()
+    assert llamadas.count("systemctl reload fail2ban") == 2     # tomar la jail y soltarla
+    assert "systemctl stop fail2ban" not in llamadas
+
+
+def test_enable_fail2ban_es_atomico_si_no_arranca(sistema):
+    antes = sistema.estado()
+    sistema._estado("fallos", {"systemctl": ["fail2ban"]})
+    sistema.correr_esperando_fallo("install_fail2ban", "enable")
+    _sin_cambios(antes, sistema.estado())
+    respaldo = sistema.raiz / "var" / "lib" / "lockd" / "backups" / "install_fail2ban"
+    assert not list(respaldo.glob("servicio-*.previo"))
+
+
+def test_actualizaciones_sin_linea_base_se_apagan_como_en_1_0(sistema):
+    # activado con 1.0.x: sin línea base, disable hace lo que hacía esa versión
+    sistema.escribir("etc/apt/apt.conf.d/20auto-upgrades",
+                     'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n')
+    r = sistema.correr("automatic_security_updates", "disable")
+    conf = (sistema.raiz / "etc" / "apt" / "apt.conf.d" / "20auto-upgrades").read_text()
+    assert 'Unattended-Upgrade "0"' in conf
+    assert "No hay línea base" in r.stdout
+
+
 def test_disable_sin_opciones_guardadas_no_adivina(sistema):
     # activado con una versión anterior de Lockd: no hay opciones previas
     sistema.agregar_linea("etc/fstab", "tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev 0 0 # lockd-shm")
@@ -416,6 +456,15 @@ class TestStubs:
         assert linea.startswith("procview:x:") and linea.endswith(":polkitd")
         assert _cmd(sistema, "id", "polkitd").returncode == 0
         assert _cmd(sistema, "id", "nadie").returncode == 1
+
+    def test_apt_get_instala_y_arranca_el_servicio_como_debian(self, sistema):
+        assert _cmd(sistema, "dpkg-query", "-W", "-f=${Status}", "fail2ban").returncode == 1
+        _cmd(sistema, "apt-get", "install", "-y", "fail2ban")
+        assert _cmd(sistema, "dpkg-query", "-W", "-f=${Status}", "fail2ban").stdout == "install ok installed"
+        assert _cmd(sistema, "systemctl", "is-active", "--quiet", "fail2ban").returncode == 0
+
+    def test_reload_de_unidad_inactiva_falla(self, sistema):
+        assert _cmd(sistema, "systemctl", "reload", "fail2ban").returncode == 1
 
     def test_estado_detecta_cambios(self, sistema):
         antes = sistema.estado()

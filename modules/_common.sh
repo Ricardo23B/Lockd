@@ -533,6 +533,106 @@ grupo_revertir() {
     rm -f "$estado"
 }
 
+# ── Servicios y paquetes ─────────────────────────────────────────────────────
+# Un servicio vuelve a como estaba antes del ciclo de activación: habilitado o
+# no, activo o no. servicio_guardar lo anota una vez por ciclo (reaplicar
+# enable lo conserva) y servicio_restaurar lo reinstala. Un servicio que estaba
+# activo antes de Lockd sigue activo al desactivar.
+# Los paquetes que instala Lockd quedan instalados al desactivar: el módulo
+# anota cuáles instaló y disable avisa que siguen en el sistema.
+
+_lockd_estado_servicio() {
+    # _lockd_estado_servicio <mod> <unidad>: archivo con el estado previo
+    printf '%s/%s/servicio-%s.previo' "$BACKUP_BASE" "$1" "${2%.service}"
+}
+
+servicio_guardado() {
+    # servicio_guardado <mod> <unidad>: ¿este ciclo ya guardó su estado?
+    [ -f "$(_lockd_estado_servicio "$1" "$2")" ]
+}
+
+servicio_olvidar() {
+    # servicio_olvidar <mod> <unidad>: descarta lo guardado (enable que se deshace)
+    rm -f "$(_lockd_estado_servicio "$1" "$2")"
+}
+
+servicio_guardar() {
+    # servicio_guardar <mod> <unidad>: anota si estaba habilitada y activa
+    local estado habilitado=no activo=no
+    estado="$(_lockd_estado_servicio "$1" "$2")"
+    [ -f "$estado" ] && return 0
+    if systemctl is-enabled --quiet "$2" 2>/dev/null; then habilitado=si; fi
+    if systemctl is-active --quiet "$2" 2>/dev/null; then activo=si; fi
+    mkdir -p "$(dirname "$estado")"
+    printf 'habilitado=%s\nactivo=%s\n' "$habilitado" "$activo" > "$estado"
+}
+
+servicio_estaba_activo() {
+    # servicio_estaba_activo <mod> <unidad>: ¿estaba activa antes del ciclo?
+    grep -qx 'activo=si' "$(_lockd_estado_servicio "$1" "$2")" 2>/dev/null
+}
+
+servicio_restaurar() {
+    # servicio_restaurar <mod> <unidad>: devuelve la unidad a su estado previo
+    local estado
+    estado="$(_lockd_estado_servicio "$1" "$2")"
+    if [ ! -f "$estado" ]; then
+        warn "No hay estado previo guardado de $2: queda como está."
+        return 0
+    fi
+    if grep -qx 'activo=si' "$estado"; then
+        systemctl start "$2"
+    else
+        systemctl stop "$2" 2>/dev/null || true
+    fi
+    if grep -qx 'habilitado=si' "$estado"; then
+        systemctl enable "$2"
+    else
+        systemctl disable "$2" 2>/dev/null || true
+    fi
+    rm -f "$estado"
+}
+
+_lockd_registro_paquetes() { printf '%s/%s/paquetes' "$BACKUP_BASE" "$1"; }
+
+_lockd_paquete_instalado() {
+    # shellcheck disable=SC2016  # ${Status} es formato de dpkg-query
+    [ "$(dpkg-query -W -f='${Status}' "$1" 2>/dev/null)" = "install ok installed" ]
+}
+
+paquete_instalar() {
+    # paquete_instalar <mod> <paquete...>: instala los que falten y anota cuáles
+    # instaló Lockd.
+    local mod="$1" p registro
+    local -a faltan=()
+    shift
+    for p in "$@"; do
+        if ! _lockd_paquete_instalado "$p"; then faltan+=("$p"); fi
+    done
+    [ "${#faltan[@]}" -gt 0 ] || return 0
+    apt-get install -y "${faltan[@]}" || return 1
+    registro="$(_lockd_registro_paquetes "$mod")"
+    mkdir -p "$(dirname "$registro")"
+    for p in "${faltan[@]}"; do
+        if ! grep -qxF -- "$p" "$registro" 2>/dev/null; then
+            printf '%s\n' "$p" >> "$registro"
+        fi
+    done
+}
+
+paquetes_avisar() {
+    # paquetes_avisar <mod>: avisa qué paquetes instalados por Lockd siguen ahí
+    local registro p
+    registro="$(_lockd_registro_paquetes "$1")"
+    [ -f "$registro" ] || return 0
+    while read -r p; do
+        [ -n "$p" ] || continue
+        if _lockd_paquete_instalado "$p"; then
+            info "$p sigue instalado (lo instaló Lockd). Si no lo usás: sudo apt remove $p"
+        fi
+    done < "$registro"
+}
+
 # ── sshd ─────────────────────────────────────────────────────────────────────
 reload_sshd() {
     # Recarga sshd según cómo corre. Las sesiones abiertas no se cortan: la
