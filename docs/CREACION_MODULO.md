@@ -40,26 +40,29 @@ source "$(dirname "$0")/../_common.sh"
 # Verificaciones previas
 check_root
 
-BACKUP_DIR="${BACKUP_BASE}/mi_modulo"
-MI_CONF="/etc/mi_archivo.conf"
+MOD="mi_modulo"
+# Toda ruta del sistema lleva ${SYSROOT} adelante: vacío en una ejecución
+# real, el árbol de prueba en los tests (ver "Probar la reversión").
+MI_CONF="${SYSROOT}/etc/mi_archivo.conf"
 
 # Dry-run: SIEMPRE antes de check_cmd y de cualquier efecto.
 # _common.sh activa DRY_RUN si el script recibe el argumento --dry-run
 # (canal que usa el Executor a través de pkexec) o la variable DRY_RUN=1.
 if [ "$DRY_RUN" = "1" ]; then
-    warn "[DRY-RUN] Would modify $MI_CONF"
-    warn "[DRY-RUN] Would restart mi_servicio"
+    warn "[DRY-RUN] Modificaría $MI_CONF"
+    warn "[DRY-RUN] Reiniciaría mi_servicio"
     exit 0
 fi
 
 check_cmd mi_herramienta    # verifica que el binario existe
 
-# Backup del archivo antes de modificar
-mkdir -p "$BACKUP_DIR"
-backup "$MI_CONF" mi_modulo
+# Línea base: guarda el archivo como estaba antes de Lockd, una sola vez por
+# ciclo (reaplicar enable no la pisa). Si no existía, se anota y disable lo
+# borra.
+baseline_begin "$MOD" "$MI_CONF"
 
-# Lógica principal
-cat >> "$MI_CONF" << 'CONF'
+# Lógica principal (write_file escribe de forma atómica)
+write_file "$MI_CONF" 0644 << 'CONF'
 # Lockd — Mi configuración
 MiOpcion = valor
 CONF
@@ -73,7 +76,11 @@ exit 0
 
 - `set -euo pipefail` — aborta ante cualquier error
 - `check_root` — verificar que corre como root
-- Backup antes de modificar cualquier archivo del sistema
+- Rutas del sistema con `${SYSROOT}` adelante (`"${SYSROOT}/etc/..."`)
+- Antes de modificar, guardar el estado previo con el patrón que corresponda
+  (ver "Revertir exacto")
+- enable atómico: si un paso falla, deshacer lo que hizo esa ejecución y
+  salir con error
 - Soportar `DRY_RUN=1` mostrando qué haría
 - `exit 0` si es correcto, `exit 1` si da error
 
@@ -81,7 +88,9 @@ exit 0
 
 ## Paso 3: disable.sh
 
-Debe deshacer **exactamente** lo que hizo `enable.sh` y ser idempotente (ejecutarlo dos veces no debe causar errores).
+Deja el sistema **exactamente** como estaba antes de Lockd, aunque enable se
+haya aplicado varias veces, y es idempotente: ejecutarlo dos veces termina
+igual que una. Lo que existía antes de Lockd queda como estaba.
 
 ```bash
 #!/bin/bash
@@ -89,21 +98,47 @@ set -euo pipefail
 source "$(dirname "$0")/../_common.sh"
 
 check_root
-BACKUP_DIR="${BACKUP_BASE}/mi_modulo"
-MI_CONF="/etc/mi_archivo.conf"
+MOD="mi_modulo"
+MI_CONF="${SYSROOT}/etc/mi_archivo.conf"
 
 if [ "$DRY_RUN" = "1" ]; then
-    warn "[DRY-RUN] Would restore $MI_CONF from backup"
+    warn "[DRY-RUN] Devolvería $MI_CONF a su estado previo a Lockd"
     exit 0
 fi
 
-# restaurar backup si existe
-restore "$MI_CONF" mi_modulo
+# reinstala la línea base (o borra el archivo si no existía) y cierra el ciclo
+baseline_restore "$MOD" "$MI_CONF"
+baseline_end "$MOD"
 
 systemctl restart mi_servicio 2>/dev/null || true
 info "Módulo desactivado."
 exit 0
 ```
+
+### Revertir exacto: qué patrón usar
+
+| Qué toca el módulo | enable | disable |
+|---|---|---|
+| Un archivo propio (drop-in) | lo crea | lo borra |
+| Un archivo que reescribe entero | `baseline_begin MOD archivo...` | `baseline_restore MOD archivo...` y `baseline_end MOD` |
+| Una línea de un archivo compartido (`/etc/fstab`) | `fstab_aplicar marca ...` | `fstab_quitar marca` |
+| Las opciones de un punto de montaje | `endurecer_montaje MOD marca origen punto tipo opciones` | `revertir_montaje MOD marca punto opción...` |
+| Grupos y miembros | `grupo_asegurar MOD grupo`, `grupo_sumar MOD grupo usuario` | `grupo_revertir MOD` |
+
+- Un archivo que comparten varios módulos se maneja por líneas: en
+  `/etc/fstab` cada módulo tiene la suya, marcada al final con `# marca`, y
+  revierte solo esa. Si el usuario ya tenía una entrada para ese punto, queda
+  comentada con `# marca:original ` y vuelve intacta al desactivar.
+- `endurecer_montaje` guarda las opciones en ejecución una vez por ciclo,
+  escribe la línea de fstab y remonta; si el remontaje falla, deja fstab y lo
+  guardado como estaban. La línea lleva explícitas las banderas restrictivas
+  que el punto ya tenía (`nosuid`, `nodev`, `noexec`): así el remontaje y el
+  arranque, que aplican las opciones de fstab, las mantienen.
+- `revertir_montaje` quita la línea primero (el remontaje mezcla las opciones
+  de fstab) y devuelve a su valor previo las opciones que el módulo toca,
+  además de `nosuid`, `nodev` y `noexec`.
+- `grupo_revertir` quita solo los miembros que agregó Lockd y borra el grupo
+  solo si lo creó Lockd y quedó vacío.
 
 ---
 
@@ -167,6 +202,42 @@ python3 lockd.py enable mi_modulo
 python3 lockd.py
 ```
 
+### Probar la reversión sin root (LOCKD_SYSROOT)
+
+`tests/test_reversibility.py` ejecuta enable y después disable sobre un árbol
+de prueba y compara el antes con el después: archivos con sus permisos,
+`/etc/group`, opciones de montaje en ejecución, servicios y modos de
+AppArmor. No toca el sistema real ni pide root. Para sumar un módulo:
+
+1. Escribir sus rutas del sistema con `${SYSROOT}` adelante.
+2. Agregar el caso en `CASOS`, con una función que prepare el estado previo
+   (`_sin_preparacion` si no hace falta nada). Conviene un caso para cada
+   estado previo distinto: un sistema limpio y uno ya endurecido a mano.
+3. Correr `python3 -m pytest tests/test_reversibility.py -q`.
+
+Cómo funciona el modo test (lo exige `_common.sh` cuando `LOCKD_SYSROOT`
+apunta a un directorio distinto de `/`); todo falla cerrado:
+
+- No corre como root: con `sudo pytest` estos tests se saltean; en CI corren
+  en una pasada sin privilegios.
+- El `PATH` del módulo queda solo en `$LOCKD_SYSROOT/.stubs/bin`: los comandos
+  que actúan sobre el sistema (`mount`, `systemctl`, `apt-get`, `groupadd`...)
+  son simulados por `tests/stubs/lockd_stub.py` y guardan su estado en
+  `.stubs/state/`; las herramientas inofensivas (`sed`, `cp`, `find`...) son
+  enlaces a las reales y están listadas en `HERRAMIENTAS`. Un comando que no
+  esté en ninguna de las dos listas no existe: el test falla aunque el módulo
+  descarte el error. Sumar uno es una decisión: si actúa sobre el sistema,
+  lleva stub.
+- Antes de nada se ejecuta el centinela `lockd-stubs`; si no corre (por
+  ejemplo, `/tmp` montado con `noexec`), el script aborta. En ese caso
+  `tests/conftest.py` lleva los temporales a `~/.cache/lockd-pytest`.
+- Sin bus del sistema ni terminal: aunque se llamara al `systemctl` real, no
+  llegaría a systemd ni podría pedir contraseña.
+
+Un caso que todavía no cumple el contrato se marca con
+`_deuda("motivo")` (xfail estricto): queda como deuda visible y, cuando el
+arreglo entra, el test pasa y obliga a quitar la marca.
+
 ---
 
 ## Buenas prácticas
@@ -203,10 +274,18 @@ source "$(dirname "$0")/../_common.sh"
 
 check_root         # verifica root, sale si da no
 check_cmd gcc      # verifica que gcc existe, sale si no
-backup /etc/foo bar_module    # crea backup en /var/lib/lockd/backups/bar_module/
-restore /etc/foo bar_module   # restaura desde backup
+backup /etc/foo bar_module    # copia generacional en /var/lib/lockd/backups/bar_module/
 apply "Descripción" comando arg1 arg2   # ejecuta o muestra en dry-run
+write_file /etc/foo 0644 < contenido    # escritura atómica (temporal + mv)
+baseline_begin bar_module /etc/foo      # estado previo a Lockd, una vez por ciclo
+baseline_restore bar_module /etc/foo    # lo reinstala (o borra si no existía)
+baseline_end bar_module                 # cierra el ciclo
 ```
+
+Las funciones de fstab, montajes y grupos están en la tabla de "Revertir
+exacto". `restore` sigue disponible para los módulos que lo usan; para volver
+al estado previo a Lockd conviene la línea base (`baseline_*`), que se
+conserva aunque enable se aplique varias veces.
 
 ---
 

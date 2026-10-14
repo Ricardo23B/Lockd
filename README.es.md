@@ -22,15 +22,12 @@ accesibles tanto desde un escritorio gráfico, desde CLI o en un servidor remoto
 Lockd está en **beta**. Antes de usarlo en un sistema que no puedas
 reconstruir, ten en cuenta estas limitaciones:
 
-- **Desactivar un módulo todavía no restaura el estado previo en 7 de los 16
-  módulos.** Desactivar `secure_shared_memory`, `secure_tmp_partition` o
-  `hide_procs_nonroot` no restaura las opciones de montaje previas en
-  ejecución, y desactivar `secure_shared_memory` o `hide_procs_nonroot` puede
-  borrar de `/etc/fstab` la línea del otro. Desactivar
-  `automatic_security_updates`, `install_fail2ban` o `apparmor_enforce_mode`
-  puede apagar protecciones que estaban activas antes de Lockd.
-  `restrict_suid_binaries` pierde su lista de restauración si se activa dos
-  veces. Los arreglos están en curso y los sigue `tests/test_reversibility.py`.
+- **Desactivar un módulo todavía no restaura el estado previo en 4 de los 16
+  módulos.** Desactivar `automatic_security_updates`, `install_fail2ban` o
+  `apparmor_enforce_mode` puede apagar protecciones que estaban activas antes
+  de Lockd, y `restrict_suid_binaries` pierde su lista de restauración si se
+  activa dos veces. Los arreglos están en curso y los sigue
+  `tests/test_reversibility.py`.
 - Otros cuatro módulos revierten de forma aproximada: `disable_core_dumps`,
   `disable_ctrl_alt_del`, `restrict_compilers` y `clamav_scanner`.
 - El rollback transaccional entre módulos todavía no está implementado.
