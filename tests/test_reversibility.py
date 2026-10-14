@@ -377,6 +377,18 @@ def test_enable_fail2ban_es_atomico_si_no_arranca(sistema):
     assert not list(respaldo.glob("servicio-*.previo"))
 
 
+def test_hide_procs_recupera_las_banderas_de_proc_con_la_linea_de_1_0(sistema):
+    # activado con 1.0.x: línea con defaults y /proc sin nosuid,nodev,noexec
+    sistema.agregar_linea("etc/group", "procview:x:1500:polkitd")
+    sistema.agregar_linea("etc/fstab", "proc /proc proc defaults,hidepid=invisible,gid=1500 0 0 # lockd-hide-procs")
+    sistema.montar("/proc", "rw,relatime,gid=1500,hidepid=invisible")
+    sistema.correr("hide_procs_nonroot", "enable")
+    assert {"nosuid", "nodev", "noexec"} <= set(sistema.estado()["montajes"]["/proc"])
+    lineas = [x for x in (sistema.raiz / "etc" / "fstab").read_text().splitlines()
+              if x.endswith("# lockd-hide-procs")]
+    assert len(lineas) == 1 and "defaults" not in lineas[0]
+
+
 def test_actualizaciones_sin_linea_base_se_apagan_como_en_1_0(sistema):
     # activado con 1.0.x: sin línea base, disable hace lo que hacía esa versión
     sistema.escribir("etc/apt/apt.conf.d/20auto-upgrades",
