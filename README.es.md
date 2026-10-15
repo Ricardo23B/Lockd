@@ -6,34 +6,91 @@
 
 🇬🇧 [English version](README.md)
 
-**Herramienta de hardening para Linux con GUI, CLI y auditoría integrada.**
+**Herramienta de hardening para Linux con GUI, TUI, CLI y auditoría integrada.**
 
 Lockd convierte configuraciones de seguridad complejas en interruptores simples,
-accesibles tanto desde un escritorio gráfico, desde CLI o en un servidor remoto vía SSH.
+accesibles desde un escritorio gráfico, desde la CLI o en un servidor remoto vía SSH.
+Todo cambio se puede simular antes, y la reversibilidad es un objetivo central del diseño.
 
 > **Nota:** el desarrollo y la colaboración ocurren en
 > [GitLab](https://gitlab.com/Ricardo23B/Lockd). El repositorio de GitHub
 > es un espejo de solo lectura.
 
+![GUI de Lockd: perfiles y Security Score](assets/screenshots/gui.png)
+
 ---
 
-## Estado y limitaciones conocidas
+## Por qué Lockd
 
-Lockd está en **beta**. Antes de usarlo en un sistema que no puedas
-reconstruir, ten en cuenta estas limitaciones:
+- **Hardening comprensible.** Cada módulo explica qué cambia, con su nivel de
+  riesgo e impacto, para que decidas con todo el contexto.
+- **Simula antes de aplicar.** `--dry-run` muestra el contenido exacto que
+  escribiría un módulo, y un test de integración comprueba que, en simulación,
+  los 32 scripts enable/disable no modifican los directorios del sistema que
+  vigila.
+- **Reversibilidad como objetivo de diseño.** Cada módulo incluye scripts
+  `enable`, `disable` y `check`, y un test de contrato de punta a punta sigue
+  de cerca cuán fielmente desactivar restaura el estado previo.
+- **Un motor, tres interfaces.** GUI GTK4 + libadwaita, TUI curses para
+  sesiones SSH y una CLI apta para scripts.
+- **Cuidado con los privilegios.** Un único helper privilegiado ejecuta los
+  módulos desde rutas de root, autorizado por Polkit, y cada operación queda
+  en un journal de solo añadir.
 
-- **Desactivar un módulo todavía no restaura el estado previo en 4 de los 16
-  módulos.** Desactivar `automatic_security_updates`, `install_fail2ban` o
-  `apparmor_enforce_mode` puede apagar protecciones que estaban activas antes
-  de Lockd, y `restrict_suid_binaries` pierde su lista de restauración si se
-  activa dos veces. Los arreglos están en curso y los sigue
-  `tests/test_reversibility.py`.
-- Otros cuatro módulos revierten de forma aproximada: `disable_core_dumps`,
-  `disable_ctrl_alt_del`, `restrict_compilers` y `clamav_scanner`.
-- El rollback transaccional entre módulos todavía no está implementado.
-- La interfaz y las descripciones de los módulos están en español; la versión
-  en inglés está planificada.
-- Solo sistemas basados en Debian (Debian, Ubuntu, Parrot OS).
+Lockd complementa herramientas de auditoría y cumplimiento como Lynis u
+OpenSCAP: su foco es aplicar hardening de forma interactiva y controlada, con
+simulación y reversión de los cambios.
+
+---
+
+## Capturas
+
+| Modo Avanzado (banner de simulación activo) | Security Scan en la terminal |
+|:---:|:---:|
+| ![Modo Avanzado en la GUI](assets/screenshots/adv.png) | ![Security Scan en la TUI](assets/screenshots/tui.png) |
+
+La interfaz y las descripciones de los módulos están por ahora en español; la
+versión en inglés está planificada.
+
+---
+
+## Estado
+
+Lockd está en **beta** y sus cimientos ya están construidos:
+
+- **Simulación en la que puedes confiar:** los 32 scripts enable/disable se
+  ejecutan con `--dry-run` en un test de integración que verifica que no
+  cambia ningún archivo en los directorios del sistema que vigila (como
+  `/etc/ssh`, `/etc/systemd/system` y `/var/lib/lockd`).
+- **Helper privilegiado y journal:** los módulos corren desde rutas de root vía
+  Polkit y cada operación se registra en `/var/lib/lockd/journal.jsonl`.
+- **Estado fiel al sistema real:** el estado de los módulos se reconcilia con
+  el sistema al arrancar y después de cada operación.
+- **Reversibilidad bajo test:** `tests/test_reversibility.py` ejecuta enable →
+  disable sobre un árbol de prueba y comprueba que el estado previo vuelve.
+  Hoy 11 módulos no tienen carencias conocidas, 4 restauran de forma
+  aproximada (`disable_core_dumps`, `disable_ctrl_alt_del`,
+  `restrict_compilers`, `clamav_scanner`) y 1 se está completando
+  (`apparmor_enforce_mode`). Cada caso pendiente es un `xfail` estricto, así
+  que la suite hace cumplir cada arreglo.
+- **Próximos pasos:** rollback transaccional entre módulos, interfaz y
+  documentación en inglés, y más familias de distribuciones. Hoy Lockd
+  soporta sistemas basados en Debian (Debian, Ubuntu, Parrot OS).
+
+### Notas de uso
+
+Prueba Lockd en una VM o en un sistema que puedas reconstruir, y ejecuta
+`--dry-run` primero. Mientras se completa la reversión de
+`apparmor_enforce_mode`, después de desactivarlo comprueba con
+`sudo aa-status` que los perfiles que tenías en modo enforce sigan así.
+
+### Inicio rápido
+
+```bash
+lockd scan                              # audita y obtén tu Security Score
+lockd --dry-run profile home_desktop    # mira qué haría el perfil
+lockd profile home_desktop              # aplícalo
+```
 
 ---
 
@@ -72,7 +129,7 @@ Aplica una configuración completa con un solo comando:
 
 ### 3. Modo Avanzado / Niveles
 
-Activá módulos individuales o aplicá por nivel de hardening:
+Activa módulos individuales o aplica por nivel de hardening:
 
 ```
 Básico    → Firewall + Fail2ban + Updates
@@ -295,8 +352,11 @@ lockd --version
 ## Seguridad y privilegios
 
 - Usa **pkexec (Polkit)** para obtener root. Nunca `sudo` hardcodeado.
-- Backups automáticos en `/var/lib/lockd/backups/<module>/`
-- Estado persistente en `~/.config/lockd/state.json`
+- Un único helper privilegiado ejecuta los módulos desde rutas de root.
+- Journal de operaciones en `/var/lib/lockd/journal.jsonl`.
+- Backups en `/var/lib/lockd/backups/<module>/`
+- Estado persistente en `~/.config/lockd/state.json`, reconciliado con el
+  sistema real al arrancar y después de cada operación.
 - Logs en `/var/log/lockd.log`
 
 Ver [SECURITY.md](SECURITY.md) para la política de reporte de vulnerabilidades.
