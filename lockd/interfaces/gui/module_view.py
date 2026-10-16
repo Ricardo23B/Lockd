@@ -49,8 +49,9 @@ _WARN_MODULES: dict[str, tuple[str, str]] = {
     ),
     "apparmor_enforce_mode": (
         "¿Activar AppArmor en modo enforce?",
-        "Las aplicaciones con perfiles AppArmor quedarán confinadas. "
-        "Algunas pueden dejar de funcionar con perfiles muy restrictivos.",
+        "Los perfiles que están en complain pasan a enforce y sus aplicaciones "
+        "quedan confinadas. Algunas pueden dejar de funcionar con perfiles muy "
+        "restrictivos.",
     ),
     "restrict_compilers": (
         "¿Restringir acceso a compiladores?",

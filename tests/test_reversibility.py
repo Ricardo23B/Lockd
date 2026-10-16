@@ -35,14 +35,14 @@ ROOT        = Path(__file__).resolve().parent.parent
 MODULES_DIR = ROOT / "modules"
 STUB        = ROOT / "tests" / "stubs" / "lockd_stub.py"
 COMANDOS    = ["mount", "findmnt", "systemctl", "apt-get", "dpkg-query", "aa-enforce",
-               "aa-complain", "getent", "groupadd", "groupdel", "usermod", "gpasswd",
-               "id", "lockd-stubs"]
+               "aa-complain", "apparmor_parser", "aa-enabled", "getent", "groupadd",
+               "groupdel", "usermod", "gpasswd", "id", "lockd-stubs"]
 # Comandos reales que los módulos pueden usar en modo test: solo leen o escriben
 # las rutas que reciben, que caen dentro del árbol. Sumar uno es una decisión:
 # si actúa sobre el sistema (servicios, montajes, paquetes), lleva stub.
 HERRAMIENTAS = ["basename", "cat", "chmod", "cp", "cut", "date", "dirname", "find",
-                "grep", "head", "ls", "mkdir", "mktemp", "mv", "readlink", "rm",
-                "rmdir", "sed", "tail"]
+                "grep", "head", "ln", "ls", "mkdir", "mktemp", "mv", "readlink", "rm",
+                "rmdir", "sed", "sha256sum", "tail", "tr"]
 RUTA_SISTEMA = "/usr/sbin:/usr/bin:/sbin:/bin"
 CATALOGO    = {m["id"]: m for m in yaml.safe_load(
     (MODULES_DIR / "modules.yaml").read_text(encoding="utf-8"))["modules"]}
@@ -120,9 +120,30 @@ class Sistema:
         self._estado("units", unidades)
 
     def apparmor(self, perfiles: dict) -> None:
-        for nombre in perfiles:
-            self.escribir(f"etc/apparmor.d/{nombre}", f"profile {nombre} {{}}\n")
-        self._estado("aa", perfiles)
+        # Archivo, enlaces y modo en ejecución coherentes: enforce, complain
+        # (bandera en la cabecera), complain-enlace (enlace en
+        # force-complain/), unconfined y deshabilitado (enlace en disable/, sin
+        # cargar). La cabecera en complain lleva otra bandera sin espacio:
+        # aa-complain no la deja igual, así que solo la vuelta desde lo
+        # guardado cumple el contrato.
+        base = self.raiz / "etc" / "apparmor.d"
+        banderas = {"complain": "attach_disconnected,complain", "unconfined": "unconfined"}
+        aa = {}
+        for nombre, modo in perfiles.items():
+            cabecera = f"profile {nombre} /usr/bin/{nombre}"
+            if modo in banderas:
+                cabecera += f" flags=({banderas[modo]})"
+            self.escribir(f"etc/apparmor.d/{nombre}",
+                          "abi <abi/4.0>,\ninclude <tunables/global>\n\n"
+                          f"{cabecera} {{\n  include <abstractions/base>\n"
+                          f"  /usr/bin/{nombre} mr,\n}}\n")
+            enlace = {"complain-enlace": "force-complain", "deshabilitado": "disable"}.get(modo)
+            if enlace:
+                (base / enlace).mkdir(exist_ok=True)
+                (base / enlace / nombre).symlink_to(f"/etc/apparmor.d/{nombre}")
+            if modo != "deshabilitado":
+                aa[nombre] = "complain" if modo == "complain-enlace" else modo
+        self._estado("aa", aa)
 
     def instalar_comando(self, nombre: str) -> None:
         # misma lógica para todos, con el intérprete que corre pytest
@@ -159,6 +180,18 @@ class Sistema:
     def ida_y_vuelta(self, modulo: str) -> None:
         self.correr(modulo, "enable")
         self.correr(modulo, "disable")
+
+    def chequear(self, modulo: str) -> int:
+        # como lo corre el controlador: sin privilegios y sin _common.sh; el
+        # PATH queda solo en los stubs y las herramientas del árbol
+        script = MODULES_DIR / CATALOGO[modulo]["check_script"]
+        r = subprocess.run(
+            [shutil.which("bash", path=RUTA_SISTEMA), str(script)], capture_output=True,
+            text=True, timeout=30, stdin=subprocess.DEVNULL,
+            env={"PATH": str(self.raiz / ".stubs" / "bin"), "LANG": "C.UTF-8",
+                 "LOCKD_SYSROOT": str(self.raiz)},
+        )
+        return r.returncode
 
     # ── estado observable ────────────────────────────────────────────────
     def estado(self) -> dict:
@@ -253,9 +286,11 @@ def _tmp_ya_endurecido(s: Sistema) -> None:
 
 
 def _perfiles_mixtos(s: Sistema) -> None:
-    s.apparmor({"usr.bin.alfa": "enforce", "usr.bin.beta": "complain",
-                "usr.sbin.gama": "enforce"})
+    s._estado("pkgs", ["apparmor", "apparmor-utils"])
     s.unidades({"apparmor": {"enabled": True, "active": True, "masked": False}})
+    s.apparmor({"usr.bin.alfa": "enforce", "usr.bin.beta": "complain",
+                "usr.sbin.gama": "complain-enlace", "usr.sbin.delta": "deshabilitado",
+                "epsilon": "unconfined"})
 
 
 def _deuda(motivo: str):
@@ -276,8 +311,8 @@ CASOS = [
     pytest.param("install_fail2ban", _sin_preparacion),
     pytest.param("install_fail2ban", _fail2ban_propio),
     pytest.param("restrict_suid_binaries", _binarios_suid),
-    pytest.param("apparmor_enforce_mode", _perfiles_mixtos, marks=_deuda(
-        "disable pasa a complain perfiles que estaban en enforce (jueves)")),
+    pytest.param("apparmor_enforce_mode", _sin_preparacion),
+    pytest.param("apparmor_enforce_mode", _perfiles_mixtos),
 ]
 
 
@@ -419,6 +454,129 @@ def test_suid_reaplicar_no_pierde_la_lista(sistema):
     _sin_cambios(antes, sistema.estado())
 
 
+APPARMOR = "apparmor_enforce_mode"
+
+
+def _perfil(s: Sistema, nombre: str) -> str:
+    return (s.raiz / "etc" / "apparmor.d" / nombre).read_text(encoding="utf-8")
+
+
+def test_apparmor_pasa_a_enforce_solo_los_de_complain(sistema):
+    _perfiles_mixtos(sistema)
+    antes = sistema.estado()
+    sistema.correr(APPARMOR, "enable")
+    despues = sistema.estado()
+    assert despues["apparmor"] == {"usr.bin.alfa": "enforce", "usr.bin.beta": "enforce",
+                                   "usr.sbin.gama": "enforce", "epsilon": "unconfined"}
+    assert "flags=(attach_disconnected) {" in _perfil(sistema, "usr.bin.beta")
+    assert "etc/apparmor.d/force-complain/usr.sbin.gama" not in despues["archivos"]
+    for intacto in ("usr.bin.alfa", "usr.sbin.delta", "disable/usr.sbin.delta", "epsilon"):
+        clave = f"etc/apparmor.d/{intacto}"
+        assert despues["archivos"][clave] == antes["archivos"][clave]
+
+
+def test_apparmor_no_toca_un_unconfined_aunque_tenga_enlace_en_force_complain(sistema):
+    # aa-enforce le quitaría unconfined y la aplicación quedaría sin permisos
+    _perfiles_mixtos(sistema)
+    (sistema.raiz / "etc" / "apparmor.d" / "force-complain" / "epsilon").symlink_to(
+        "/etc/apparmor.d/epsilon")
+    antes = sistema.estado()
+    sistema.correr(APPARMOR, "enable")
+    despues = sistema.estado()
+    for clave in ("etc/apparmor.d/epsilon", "etc/apparmor.d/force-complain/epsilon"):
+        assert despues["archivos"][clave] == antes["archivos"][clave]
+    assert despues["apparmor"]["epsilon"] == "unconfined"
+
+
+def test_apparmor_reaplicar_enable_conserva_lo_guardado(sistema):
+    _perfiles_mixtos(sistema)
+    antes = sistema.estado()
+    sistema.correr(APPARMOR, "enable")
+    sistema.correr(APPARMOR, "enable")
+    sistema.correr(APPARMOR, "disable")
+    _sin_cambios(antes, sistema.estado())
+
+
+@pytest.mark.parametrize("nombre", ["usr.bin.beta", "usr.sbin.gama"])
+def test_apparmor_perfil_editado_conserva_el_cambio_y_vuelve_a_complain(sistema, nombre):
+    # beta estaba en complain por bandera y gama por enlace en force-complain/
+    _perfiles_mixtos(sistema)
+    sistema.correr(APPARMOR, "enable")
+    sistema.agregar_linea(f"etc/apparmor.d/{nombre}", "# ajuste del administrador")
+    r = sistema.correr(APPARMOR, "disable")
+    assert "# ajuste del administrador" in _perfil(sistema, nombre)
+    assert sistema.estado()["apparmor"][nombre] == "complain"
+    assert f"{nombre} cambió después de activar el módulo" in r.stdout
+
+
+def test_apparmor_reaplicar_tras_editar_guarda_la_edicion(sistema):
+    # el administrador ajusta un perfil que Lockd pasó a enforce y lo vuelve a
+    # complain: un nuevo enable lo guarda así y disable vuelve a esa versión
+    _perfiles_mixtos(sistema)
+    sistema.correr(APPARMOR, "enable")
+    sistema.agregar_linea("etc/apparmor.d/usr.bin.beta", "# ajuste del administrador")
+    _cmd(sistema, "aa-complain", str(sistema.raiz / "etc" / "apparmor.d" / "usr.bin.beta"))
+    editado = _perfil(sistema, "usr.bin.beta")
+    sistema.correr(APPARMOR, "enable")
+    sistema.correr(APPARMOR, "disable")
+    assert _perfil(sistema, "usr.bin.beta") == editado
+    assert sistema.estado()["apparmor"]["usr.bin.beta"] == "complain"
+
+
+def test_apparmor_si_aa_enforce_falla_ese_perfil_vuelve_y_los_demas_siguen(sistema):
+    _perfiles_mixtos(sistema)
+    antes = sistema.estado()
+    sistema._estado("fallos", {"aa-enforce": ["usr.bin.beta"]})
+    fallo = sistema.correr_esperando_fallo(APPARMOR, "enable")
+    assert "usr.bin.beta" in str(fallo)
+    despues = sistema.estado()
+    clave = "etc/apparmor.d/usr.bin.beta"
+    assert despues["archivos"][clave] == antes["archivos"][clave]
+    assert despues["apparmor"]["usr.bin.beta"] == "complain"
+    assert despues["apparmor"]["usr.sbin.gama"] == "enforce"
+    sistema._estado("fallos", {})
+    sistema.correr(APPARMOR, "disable")
+    _sin_cambios(antes, sistema.estado())
+
+
+def test_apparmor_sin_soporte_en_el_kernel_no_toca_nada(sistema):
+    _perfiles_mixtos(sistema)
+    antes = sistema.estado()
+    sistema._estado("fallos", {"aa-enabled": True})
+    sistema.correr_esperando_fallo(APPARMOR, "enable")
+    _sin_cambios(antes, sistema.estado())
+    respaldo = sistema.raiz / "var" / "lib" / "lockd" / "backups" / APPARMOR
+    assert not list(respaldo.glob("servicio-*.previo"))
+    assert not (respaldo / "apparmor").exists()
+
+
+def test_apparmor_sin_estado_guardado_deja_los_perfiles_como_estan(sistema):
+    # activado con 1.0.x: no hay nada guardado y disable no adivina modos
+    _perfiles_mixtos(sistema)
+    antes = sistema.estado()
+    r = sistema.correr(APPARMOR, "disable")
+    _sin_cambios(antes, sistema.estado())
+    assert "No hay estado guardado de los perfiles" in r.stdout
+
+
+def test_apparmor_check_sigue_el_ciclo(sistema):
+    _perfiles_mixtos(sistema)
+    assert sistema.chequear(APPARMOR) == 1          # beta y gama en complain
+    sistema.correr(APPARMOR, "enable")
+    assert sistema.chequear(APPARMOR) == 0
+    sistema.correr(APPARMOR, "disable")
+    assert sistema.chequear(APPARMOR) == 1
+
+
+def test_apparmor_check_no_cuenta_deshabilitados_ni_unconfined(sistema):
+    sistema.unidades({"apparmor": {"enabled": True, "active": True, "masked": False}})
+    sistema.apparmor({"usr.bin.alfa": "enforce", "usr.sbin.delta": "deshabilitado",
+                      "epsilon": "unconfined"})
+    assert sistema.chequear(APPARMOR) == 0
+    sistema.unidades({"apparmor": {"enabled": True, "active": False, "masked": False}})
+    assert sistema.chequear(APPARMOR) == 1
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Los stubs imitan lo que importa (si mienten, el contrato no prueba nada)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -481,3 +639,39 @@ class TestStubs:
         antes = sistema.estado()
         sistema.escribir("etc/nuevo.conf", "x\n")
         assert sistema.estado() != antes
+
+    def test_aa_enforce_reescribe_la_cabecera_y_borra_los_enlaces(self, sistema):
+        sistema.apparmor({"beta": "complain", "gama": "complain-enlace"})
+        base = sistema.raiz / "etc" / "apparmor.d"
+        assert _cmd(sistema, "aa-enforce", str(base / "beta"), str(base / "gama")).returncode == 0
+        assert "profile beta /usr/bin/beta flags=(attach_disconnected) {" in (base / "beta").read_text()
+        assert not (base / "force-complain" / "gama").is_symlink()
+        assert sistema.estado()["apparmor"] == {"beta": "enforce", "gama": "enforce"}
+
+    def test_aa_complain_no_deja_la_cabecera_igual(self, sistema):
+        # como aa.py: banderas separadas por ", " y siempre con "flags="
+        sistema.apparmor({"beta": "complain"})
+        perfil = sistema.raiz / "etc" / "apparmor.d" / "beta"
+        _cmd(sistema, "aa-enforce", str(perfil))
+        _cmd(sistema, "aa-complain", str(perfil))
+        assert "flags=(attach_disconnected, complain) {" in perfil.read_text()
+
+    def test_aa_enforce_que_falla_deja_el_archivo_reescrito(self, sistema):
+        # como el real: reescribe el archivo y después falla la recarga
+        sistema.apparmor({"beta": "complain"})
+        sistema._estado("fallos", {"aa-enforce": ["beta"]})
+        perfil = sistema.raiz / "etc" / "apparmor.d" / "beta"
+        assert _cmd(sistema, "aa-enforce", str(perfil)).returncode == 1
+        assert "complain" not in perfil.read_text()
+        assert sistema.estado()["apparmor"]["beta"] == "complain"
+
+    def test_apparmor_parser_carga_segun_banderas_y_descarga(self, sistema):
+        sistema.apparmor({"beta": "complain", "alfa": "enforce", "epsilon": "unconfined"})
+        base = sistema.raiz / "etc" / "apparmor.d"
+        _cmd(sistema, "apparmor_parser", "-R", str(base / "beta"))
+        assert "beta" not in sistema.estado()["apparmor"]
+        _cmd(sistema, "apparmor_parser", "-r", str(base / "beta"))
+        _cmd(sistema, "apparmor_parser", "-r", "-C", str(base / "alfa"))
+        assert sistema.estado()["apparmor"] == {"beta": "complain", "alfa": "complain",
+                                                "epsilon": "unconfined"}
+        assert _cmd(sistema, "apparmor_parser", "-R", str(base / "sin.cargar")).returncode == 1

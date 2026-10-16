@@ -633,6 +633,176 @@ paquetes_avisar() {
     done < "$registro"
 }
 
+# ── AppArmor: de complain a enforce, y vuelta ───────────────────────────────
+# El módulo pasa a enforce los perfiles que están en complain, por bandera en
+# la cabecera o por enlace en force-complain/. Los deshabilitados (enlace en
+# disable/) y los que declaran unconfined, como los perfiles de aplicaciones
+# que trae AppArmor 4, quedan como están.
+# aa-enforce reescribe las cabeceras del archivo y borra sus enlaces en
+# force-complain/ y disable/. Por eso cada perfil se guarda tal como está
+# antes de tocarlo, una vez por ciclo (reaplicar enable conserva lo guardado),
+# y después de aplicar se anota la suma del archivo que dejó Lockd. disable
+# reinstala el archivo y los enlaces guardados y recarga el perfil como lo
+# carga el arranque. Si el archivo cambió después de activar, conserva el
+# cambio y le devuelve el modo complain.
+
+_lockd_aa_dir() { printf '%s/etc/apparmor.d' "$SYSROOT"; }
+
+_lockd_aa_estado() {
+    # _lockd_aa_estado <mod>: directorio con lo guardado de cada perfil
+    printf '%s/%s/apparmor' "$BACKUP_BASE" "$1"
+}
+
+_lockd_aa_omitible() {
+    # _lockd_aa_omitible <nombre>: archivos que AppArmor no carga como perfil
+    case "$1" in
+        .*|README|*.dpkg-new|*.dpkg-old|*.dpkg-dist|*.dpkg-bak|*.dpkg-remove) return 0 ;;
+        *.pacsave|*.pacnew|*.rpmnew|*.rpmsave|*.orig|*.rej|*~) return 0 ;;
+    esac
+    return 1
+}
+
+_lockd_aa_banderas() {
+    # _lockd_aa_banderas <perfil>: las banderas de sus cabeceras, como ",a,b,"
+    printf ',%s' "$(sed -nE 's/^[[:space:]]*[^#[:space:]].*\(([^)]*)\)[[:space:]]*\{.*$/\1,/p' "$1" \
+        | tr -d ' \t\n')"
+}
+
+_lockd_aa_en_complain() {
+    # _lockd_aa_en_complain <perfil>: ¿está en complain, sin estar
+    # deshabilitado ni declarar unconfined?
+    local dir nombre banderas
+    dir="$(_lockd_aa_dir)"
+    nombre="$(basename "$1")"
+    [ -L "$dir/disable/$nombre" ] && return 1
+    banderas="$(_lockd_aa_banderas "$1")"
+    [[ "$banderas" == *,unconfined,* ]] && return 1
+    [ -L "$dir/force-complain/$nombre" ] || [[ "$banderas" == *,complain,* ]]
+}
+
+apparmor_en_complain() {
+    # apparmor_en_complain: los perfiles que enable pasa a enforce, uno por línea
+    local f
+    for f in "$(_lockd_aa_dir)"/*; do
+        if [ ! -f "$f" ] || [ -L "$f" ]; then continue; fi
+        _lockd_aa_omitible "$(basename "$f")" && continue
+        if _lockd_aa_en_complain "$f"; then printf '%s\n' "$f"; fi
+    done
+}
+
+apparmor_guardar() {
+    # apparmor_guardar <mod> <perfil>: guarda el perfil tal como está, con sus
+    # enlaces en force-complain/ y disable/, una vez por ciclo. Si el archivo
+    # cambió después de que Lockd lo pasó a enforce, lo guarda de nuevo: ese
+    # cambio es el estado al que vuelve.
+    local estado dir nombre sub
+    estado="$(_lockd_aa_estado "$1")"
+    nombre="$(basename "$2")"
+    if [ -f "$estado/perfiles/$nombre" ]; then
+        if [ ! -f "$estado/aplicado/$nombre" ] \
+            || [ "$(sha256sum < "$2")" = "$(cat "$estado/aplicado/$nombre")" ]; then
+            return 0
+        fi
+    fi
+    dir="$(_lockd_aa_dir)"
+    mkdir -p "$estado/perfiles" "$estado/enlaces"
+    : > "$estado/enlaces/$nombre"
+    for sub in force-complain disable; do
+        if [ -L "$dir/$sub/$nombre" ]; then
+            printf '%s %s\n' "$sub" "$(readlink "$dir/$sub/$nombre")" >> "$estado/enlaces/$nombre"
+        fi
+    done
+    cp -p "$2" "$estado/perfiles/$nombre"
+}
+
+apparmor_anotar() {
+    # apparmor_anotar <mod> <perfil>: anota la suma del archivo que dejó Lockd
+    local suma
+    suma="$(_lockd_aa_estado "$1")/aplicado/$(basename "$2")"
+    mkdir -p "$(dirname "$suma")"
+    sha256sum < "$2" > "$suma"
+}
+
+apparmor_guardados() {
+    # apparmor_guardados <mod>: ¿este ciclo guardó algún perfil?
+    local f
+    for f in "$(_lockd_aa_estado "$1")"/perfiles/*; do
+        if [ -f "$f" ]; then return 0; fi
+    done
+    return 1
+}
+
+_lockd_aa_recargar() {
+    # _lockd_aa_recargar <perfil>: lo carga como el arranque. Deshabilitado no
+    # se carga; con enlace en force-complain/ va en complain; si no, rigen las
+    # banderas de su cabecera.
+    local dir nombre
+    dir="$(_lockd_aa_dir)"
+    nombre="$(basename "$1")"
+    if [ -L "$dir/disable/$nombre" ]; then
+        apparmor_parser -R "$1" >/dev/null 2>&1 || true    # puede no estar cargado
+    elif [ -L "$dir/force-complain/$nombre" ]; then
+        apparmor_parser -r -C "$1"
+    else
+        apparmor_parser -r "$1"
+    fi
+}
+
+apparmor_devolver() {
+    # apparmor_devolver <mod> <perfil>: deja el perfil como estaba antes de
+    # Lockd y olvida lo guardado. Los enlaces que había se reponen y los que
+    # se crearon después quedan. Si el archivo cambió después de activar,
+    # conserva el cambio y le devuelve el modo complain.
+    local mod="$1" perfil="$2" estado dir nombre sub destino aplicado
+    estado="$(_lockd_aa_estado "$mod")"
+    dir="$(_lockd_aa_dir)"
+    nombre="$(basename "$perfil")"
+    [ -f "$estado/perfiles/$nombre" ] || return 0
+    if [ ! -f "$perfil" ]; then
+        warn "El perfil $nombre ya no está en $dir: no se repone."
+    else
+        if [ -f "$estado/enlaces/$nombre" ]; then
+            while read -r sub destino; do
+                [ -n "$sub" ] || continue
+                [ -L "$dir/$sub/$nombre" ] && continue
+                if ! { mkdir -p "$dir/$sub" && ln -s "$destino" "$dir/$sub/$nombre"; }; then
+                    warn "No se pudo reponer el enlace $sub/$nombre."
+                fi
+            done < "$estado/enlaces/$nombre"
+        fi
+        aplicado=""
+        if [ -f "$estado/aplicado/$nombre" ]; then aplicado="$(cat "$estado/aplicado/$nombre")"; fi
+        if [ -n "$aplicado" ] && [ "$(sha256sum < "$perfil")" != "$aplicado" ]; then
+            if [ -L "$dir/disable/$nombre" ]; then
+                warn "$nombre cambió después de activar el módulo y está deshabilitado: queda así."
+                _lockd_aa_recargar "$perfil"
+            elif [ -L "$dir/force-complain/$nombre" ]; then
+                warn "$nombre cambió después de activar el módulo: se conserva el archivo y vuelve a complain."
+                _lockd_aa_recargar "$perfil" || warn "No se pudo recargar $nombre: rige desde el próximo arranque."
+            else
+                warn "$nombre cambió después de activar el módulo: se conserva el archivo y vuelve a complain."
+                aa-complain "$perfil" || warn "No se pudo pasar $nombre a complain."
+            fi
+        else
+            cp -p "$estado/perfiles/$nombre" "$perfil"
+            _lockd_aa_recargar "$perfil" || warn "No se pudo recargar $nombre: rige desde el próximo arranque."
+        fi
+    fi
+    rm -f "$estado/perfiles/$nombre" "$estado/enlaces/$nombre" "$estado/aplicado/$nombre"
+}
+
+apparmor_restaurar() {
+    # apparmor_restaurar <mod>: devuelve cada perfil guardado y cierra el ciclo
+    local estado guardado
+    estado="$(_lockd_aa_estado "$1")"
+    for guardado in "$estado"/perfiles/*; do
+        if [ -f "$guardado" ]; then
+            apparmor_devolver "$1" "$(_lockd_aa_dir)/$(basename "$guardado")"
+        fi
+    done
+    rm -rf "$estado"
+}
+
 # ── sshd ─────────────────────────────────────────────────────────────────────
 reload_sshd() {
     # Recarga sshd según cómo corre. Las sesiones abiertas no se cortan: la

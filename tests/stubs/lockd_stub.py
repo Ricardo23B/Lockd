@@ -4,7 +4,8 @@ tests/stubs/lockd_stub.py — Comandos del sistema simulados para el modo test
 
 Un solo programa que se comporta según el nombre con el que lo invocan
 (mount, findmnt, systemctl, apt-get, dpkg-query, aa-enforce, aa-complain,
-getent, groupadd, groupdel, usermod, gpasswd, id, fail2ban-client). Los tests lo copian a
+apparmor_parser, aa-enabled, getent, groupadd, groupdel, usermod, gpasswd, id,
+fail2ban-client). Los tests lo copian a
 $LOCKD_SYSROOT/.stubs/bin/<comando>, junto con el centinela lockd-stubs:
 _common.sh lo ejecuta antes de nada (si no responde "ok", aborta) y deja el
 PATH solo en ese directorio.
@@ -27,9 +28,21 @@ revertir:
     para probar que enable no deja nada a medias;
   - systemctl recuerda enabled, active y masked por unidad;
   - apt-get install anota el paquete en state/pkgs.json y, como hace Debian
-    al instalar, habilita y arranca su servicio; dpkg-query lo consulta.
+    al instalar, habilita y arranca su servicio; dpkg-query lo consulta;
+  - aa-enforce y aa-complain hacen lo que apparmor-utils 3.0 y 4.0 con el
+    archivo: borran los enlaces del perfil en disable/ (y en force-complain/
+    al pasar a enforce), reescriben cada cabecera con sus banderas (siempre
+    con "flags=" y separadas por ", ") y recargan el perfil. Con el nombre del
+    perfil en state/fallos.json ({"aa-enforce": [NOMBRE, ...]}) la recarga
+    falla después de reescribir, como cuando el parser rechaza el perfil;
+  - apparmor_parser -r carga el perfil en el modo que dicen sus banderas
+    (complain con -C), -R lo descarga. El modo en ejecución de cada perfil
+    vive en state/aa.json; un perfil sin cargar no figura;
+  - aa-enabled responde que AppArmor está habilitado, salvo con
+    {"aa-enabled": true} en state/fallos.json.
 """
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -207,7 +220,8 @@ def systemctl() -> int:
     return 0
 
 
-SERVICIO_DEL_PAQUETE = {"fail2ban": "fail2ban", "unattended-upgrades": "unattended-upgrades"}
+SERVICIO_DEL_PAQUETE = {"fail2ban": "fail2ban", "unattended-upgrades": "unattended-upgrades",
+                        "apparmor": "apparmor"}
 
 
 def apt_get() -> int:
@@ -237,11 +251,93 @@ def dpkg_query() -> int:
     return 1
 
 
+# ── AppArmor (sobre <root>/etc/apparmor.d) ──────────────────────────────────
+AA_DIR = ROOT / "etc" / "apparmor.d"
+CABECERA = re.compile(r"^(?P<ind>\s*)(?P<cab>[^#\s][^#]*?)"
+                      r"(?:\s+(?:flags\s*=\s*)?\((?P<banderas>[^)]*)\))?\s*\{(?P<resto>\s*(?:#.*)?)$")
+# las banderas de modo que quita cada herramienta (aa.py: set_enforce, set_complain)
+QUITA = {"enforce": {"complain", "kill", "unconfined", "prompt", "default_allow"},
+         "complain": {"enforce", "kill", "unconfined", "prompt", "default_allow"}}
+
+
+def _banderas(archivo: Path) -> set:
+    res = set()
+    for linea in archivo.read_text(encoding="utf-8").splitlines():
+        m = CABECERA.match(linea)
+        if m and m["banderas"]:
+            res |= {b.strip() for b in m["banderas"].split(",") if b.strip()}
+    return res
+
+
+def _reescribir_cabeceras(archivo: Path, modo: str) -> None:
+    salida = []
+    for linea in archivo.read_text(encoding="utf-8").splitlines(keepends=True):
+        m = CABECERA.match(linea.rstrip("\n"))
+        if m:
+            banderas = [b.strip() for b in (m["banderas"] or "").split(",") if b.strip()]
+            banderas = [b for b in banderas if b not in QUITA[modo]]
+            if modo == "complain" and "complain" not in banderas:
+                banderas.append("complain")
+            linea = m["ind"] + m["cab"].rstrip()
+            if banderas:
+                linea += " flags=(" + ", ".join(banderas) + ")"
+            linea += " {" + m["resto"] + "\n"
+        salida.append(linea)
+    archivo.write_text("".join(salida), encoding="utf-8")
+
+
+def _modo_al_cargar(archivo: Path, forzar_complain: bool) -> str:
+    banderas = _banderas(archivo)
+    if forzar_complain or "complain" in banderas:
+        return "complain"
+    if "unconfined" in banderas:
+        return "unconfined"
+    return "enforce"
+
+
 def aa_modo(modo: str) -> int:
     perfiles = _cargar("aa", {})
-    for archivo in ARGS:
-        perfiles[Path(archivo).name] = modo
+    fallan = _cargar("fallos", {}).get(f"aa-{modo}", [])
+    for arg in [a for a in ARGS if not a.startswith("-")]:
+        archivo = Path(arg)
+        for sub in ("disable", "force-complain") if modo == "enforce" else ("disable",):
+            enlace = AA_DIR / sub / archivo.name
+            if enlace.is_symlink():
+                enlace.unlink()
+        _reescribir_cabeceras(archivo, modo)
+        if archivo.name in fallan:
+            _guardar("aa", perfiles)
+            print(f"apparmor_parser: no se pudo recargar {arg} (simulado)", file=sys.stderr)
+            return 1
+        perfiles[archivo.name] = _modo_al_cargar(archivo, False)
     _guardar("aa", perfiles)
+    return 0
+
+
+def apparmor_parser() -> int:
+    perfiles = _cargar("aa", {})
+    descargar = "-R" in ARGS or "--remove" in ARGS
+    complain = "-C" in ARGS or "--Complain" in ARGS
+    for arg in [a for a in ARGS if not a.startswith("-")]:
+        archivo = Path(arg)
+        if descargar:
+            if archivo.name not in perfiles:
+                print(f"apparmor_parser: {archivo.name} no está cargado", file=sys.stderr)
+                return 1
+            del perfiles[archivo.name]
+        else:
+            perfiles[archivo.name] = _modo_al_cargar(archivo, complain)
+    _guardar("aa", perfiles)
+    return 0
+
+
+def aa_enabled() -> int:
+    if _cargar("fallos", {}).get("aa-enabled"):
+        if "--quiet" not in ARGS and "-q" not in ARGS:
+            print("No - disabled at boot.")
+        return 1
+    if "--quiet" not in ARGS and "-q" not in ARGS:
+        print("Yes")
     return 0
 
 
@@ -349,7 +445,8 @@ def centinela() -> int:
 COMANDOS = {
     "mount": mount, "findmnt": findmnt, "systemctl": systemctl,
     "apt-get": apt_get, "dpkg-query": dpkg_query, "aa-enforce": lambda: aa_modo("enforce"),
-    "aa-complain": lambda: aa_modo("complain"), "getent": getent,
+    "aa-complain": lambda: aa_modo("complain"), "apparmor_parser": apparmor_parser,
+    "aa-enabled": aa_enabled, "getent": getent,
     "groupadd": groupadd, "groupdel": groupdel, "usermod": usermod,
     "gpasswd": gpasswd, "id": id_,
     "fail2ban-client": lambda: 0, "lockd-stubs": centinela,
