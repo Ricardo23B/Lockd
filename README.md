@@ -67,10 +67,9 @@ Lockd is in **beta**, and its foundations are in place:
   the system on startup and after every operation.
 - **Reversibility under test:** `tests/test_reversibility.py` runs enable →
   disable on a sandbox tree and checks that the previous state comes back.
-  Today 11 modules have no known gaps, 4 restore approximately
+  Today 12 modules have no known gaps and 4 restore approximately
   (`disable_core_dumps`, `disable_ctrl_alt_del`, `restrict_compilers`,
-  `clamav_scanner`) and 1 is being completed (`apparmor_enforce_mode`). Each
-  pending case is a strict `xfail`, so every fix is enforced by the suite.
+  `clamav_scanner`).
 - **Next:** transactional rollback across modules, an English interface and
   docs, and more distribution families. Today Lockd supports Debian-based
   systems (Debian, Ubuntu, Parrot OS).
@@ -78,8 +77,8 @@ Lockd is in **beta**, and its foundations are in place:
 ### Usage notes
 
 Try Lockd in a VM or on a system you can rebuild, and run `--dry-run` first.
-While reversal of `apparmor_enforce_mode` is being completed, after disabling
-it check with `sudo aa-status` that the profiles you had in enforce mode still
+`apparmor_enforce_mode` moves to enforce mode only the profiles that are in
+complain mode; disabled profiles and those declared `unconfined` stay as they
 are.
 
 ### Quick start

@@ -126,6 +126,7 @@ exit 0
 | Grupos y miembros | `grupo_asegurar MOD grupo`, `grupo_sumar MOD grupo usuario` | `grupo_revertir MOD` |
 | Un servicio (habilitado, activo) | `servicio_guardar MOD unidad` | `servicio_restaurar MOD unidad` |
 | Paquetes que instala | `paquete_instalar MOD paquete...` | `paquetes_avisar MOD` |
+| El modo de perfiles de AppArmor | `apparmor_guardar MOD perfil` antes de `aa-enforce` y `apparmor_anotar MOD perfil` después | `apparmor_restaurar MOD` |
 
 - Un archivo que comparten varios módulos se maneja por líneas: en
   `/etc/fstab` cada módulo tiene la suya, marcada al final con `# marca`, y
@@ -149,6 +150,14 @@ exit 0
   `paquete_instalar` anota cuáles instaló, `paquetes_avisar` lo informa en
   disable, y en `modules.yaml` el módulo los declara en `dependencies` con
   `self_installing: true`, para que `lockd info` lo muestre.
+- `aa-enforce` y `aa-complain` reescriben las cabeceras del perfil y borran
+  sus enlaces en `force-complain/` y `disable/`, así que la vuelta parte de lo
+  guardado: `apparmor_guardar` guarda el perfil tal como está (archivo y
+  enlaces) una vez por ciclo, `apparmor_anotar` anota la suma del archivo que
+  dejó Lockd y `apparmor_restaurar` reinstala lo guardado y recarga cada
+  perfil como el arranque. Un perfil que cambió después de activar conserva
+  el cambio y vuelve a complain. `apparmor_en_complain` lista los perfiles en
+  complain, sin los deshabilitados ni los que declaran `unconfined`.
 
 ---
 
@@ -292,8 +301,8 @@ baseline_restore bar_module /etc/foo    # lo reinstala (o borra si no existía)
 baseline_end bar_module                 # cierra el ciclo
 ```
 
-Las funciones de fstab, montajes y grupos están en la tabla de "Revertir
-exacto". `restore` sigue disponible para los módulos que lo usan; para volver
+Las funciones de fstab, montajes, grupos, servicios, paquetes y AppArmor
+están en la tabla de "Revertir exacto". `restore` sigue disponible para los módulos que lo usan; para volver
 al estado previo a Lockd conviene la línea base (`baseline_*`), que se
 conserva aunque enable se aplique varias veces.
 

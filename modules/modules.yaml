@@ -281,21 +281,23 @@ modules:
   - id: apparmor_enforce_mode
     name: "AppArmor en Modo Enforce"
     description: >
-      Instala AppArmor si no está presente, habilita el servicio y pone
-      todos los perfiles disponibles en modo enforce (bloqueo activo).
-      Proporciona confinamiento de aplicaciones a nivel de sistema operativo.
+      Instala AppArmor si no está presente, habilita el servicio y pasa a
+      modo enforce (bloqueo activo) los perfiles que están en complain. Los
+      perfiles deshabilitados y los que declaran unconfined quedan como
+      están. Proporciona confinamiento de aplicaciones a nivel de sistema
+      operativo.
     category: access_control
     security_level: expert
     risk_level: medium
     requires_reboot: false
-    impact: "Aplicaciones con perfil AppArmor quedan limitadas en sus accesos al sistema."
+    impact: "Las aplicaciones cuyo perfil estaba en complain quedan limitadas en sus accesos al sistema."
     server_safe: true
     desktop_safe: true
     enable_script: "apparmor_enforce_mode/enable.sh"
     disable_script: "apparmor_enforce_mode/disable.sh"
     check_script: "apparmor_enforce_mode/check.sh"
     self_installing: true
-    dependencies: [apparmor]
+    dependencies: [apparmor, apparmor-utils]
     supported_distros: [debian, ubuntu]
 
   - id: restrict_compilers
