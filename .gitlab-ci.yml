@@ -3,6 +3,7 @@ stages:
   - lint
   - test
   - build
+  - publish
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
@@ -69,11 +70,40 @@ test:python313:
     PYTHON_VERSION: "3.13"
 
 
+# Paquetes .deb (lockd y lockd-gtk). Se reconstruyen solos:
+#  - en cada push a main que toque código o empaquetado (o al lanzar el
+#    pipeline a mano desde la web), con versión -git<fecha>.<commit>;
+#  - en cada tag vX.Y.Z, con la versión de debian/changelog.
+# Corre después de lint y test: un cambio que rompa los tests no publica paquete.
+#
+# Enlaces estables (GitLab conserva los artefactos de la última pipeline
+# exitosa de cada rama o tag, sin vencimiento):
+#   <proyecto>/-/jobs/artifacts/main/raw/debs/lockd_latest_all.deb?job=build%3Adeb
+#   <proyecto>/-/jobs/artifacts/main/raw/debs/lockd-gtk_latest_all.deb?job=build%3Adeb
 build:deb:
   stage: build
   image: debian:trixie-slim
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      variables:
+        DEB_SNAPSHOT: "false"
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "web"'
+      variables:
+        DEB_SNAPSHOT: "true"
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - lockd.py
+        - lockd/**/*
+        - modules/**/*
+        - profiles/**/*
+        - helper/**/*
+        - packaging/**/*
+        - assets/**/*
+        - debian/**/*
+        - pyproject.toml
+        - ci/build_deb.sh
+      variables:
+        DEB_SNAPSHOT: "true"
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq --no-install-recommends build-essential
@@ -81,14 +111,37 @@ build:deb:
         python3-all python3-setuptools dpkg-dev lintian git
     - rm -rf "$CI_PROJECT_DIR/.pip-cache"
   script:
-    - UPSTREAM_VERSION=$(dpkg-parsechangelog -S Version | sed 's/-[^-]*$//')
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
-    - git archive --prefix="lockd-${UPSTREAM_VERSION}/" -o "../lockd_${UPSTREAM_VERSION}.orig.tar.gz" HEAD
-    - dpkg-buildpackage -us -uc
-    - lintian --fail-on error,warning ../lockd_*.deb
-    - mkdir -p debs && cp ../lockd_* ../lockd-gtk_* debs/
+    - bash ci/build_deb.sh
   artifacts:
-    name: "lockd-$CI_COMMIT_TAG"
+    name: "lockd-$CI_COMMIT_REF_SLUG"
     paths:
       - debs/
+    reports:
+      dotenv: build.env
     expire_in: 90 days
+
+# Release de GitLab con los .deb de cada tag, enlazados desde los artefactos
+# del tag (URL fija por versión).
+release:tag:
+  stage: publish
+  image: registry.gitlab.com/gitlab-org/cli:latest
+  needs:
+    - job: build:deb
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+  script:
+    - echo "Publicando release $CI_COMMIT_TAG (paquetes $DEB_VERSION)"
+  release:
+    tag_name: "$CI_COMMIT_TAG"
+    name: "Lockd $CI_COMMIT_TAG"
+    description: "Paquetes .deb de Lockd $CI_COMMIT_TAG para Debian, Ubuntu y Parrot OS. Verificación con SHA256SUMS. Cambios en CHANGELOG.md."
+    assets:
+      links:
+        - name: "lockd_${DEB_VERSION}_all.deb (núcleo, CLI y TUI)"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/lockd_${DEB_VERSION}_all.deb?job=build%3Adeb"
+        - name: "lockd-gtk_${DEB_VERSION}_all.deb (interfaz gráfica)"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/lockd-gtk_${DEB_VERSION}_all.deb?job=build%3Adeb"
+        - name: "SHA256SUMS"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/SHA256SUMS?job=build%3Adeb"
