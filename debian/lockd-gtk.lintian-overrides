@@ -1,0 +1,3 @@
+# El lanzador (Exec=lockd --gui) ejecuta el binario /usr/bin/lockd, que
+# instala el paquete lockd del que lockd-gtk depende (lockd (= ${binary:Version})).
+lockd-gtk: desktop-command-not-in-package lockd [usr/share/applications/io.github.lockd.desktop]
