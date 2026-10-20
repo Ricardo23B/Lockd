@@ -72,7 +72,7 @@ test:python313:
 
 # Paquetes .deb (lockd y lockd-gtk). Se reconstruyen solos:
 #  - en cada push a main que toque código o empaquetado (o al lanzar el
-#    pipeline a mano desde la web), con versión -git<fecha>.<commit>;
+#    pipeline a mano desde la web), con versión +git<fecha>.<commit>;
 #  - en cada tag vX.Y.Z, con la versión de debian/changelog.
 # Corre después de lint y test: un cambio que rompa los tests no publica paquete.
 #
@@ -102,6 +102,7 @@ build:deb:
         - debian/**/*
         - pyproject.toml
         - ci/build_deb.sh
+        - .gitlab-ci.yml
       variables:
         DEB_SNAPSHOT: "true"
   before_script:
@@ -140,8 +141,8 @@ release:tag:
     assets:
       links:
         - name: "lockd_${DEB_VERSION}_all.deb (núcleo, CLI y TUI)"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/lockd_${DEB_VERSION}_all.deb?job=build%3Adeb"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/lockd_${DEB_VERSION_URL}_all.deb?job=build%3Adeb"
         - name: "lockd-gtk_${DEB_VERSION}_all.deb (interfaz gráfica)"
-          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/lockd-gtk_${DEB_VERSION}_all.deb?job=build%3Adeb"
+          url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/lockd-gtk_${DEB_VERSION_URL}_all.deb?job=build%3Adeb"
         - name: "SHA256SUMS"
           url: "${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/debs/SHA256SUMS?job=build%3Adeb"

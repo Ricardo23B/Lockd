@@ -1,4 +1,4 @@
-lockd (1.0.2-parrot1) echo; urgency=medium
+lockd (1.0.2+parrot1) echo; urgency=medium
 
   * Initial ParrotSec packaging (debhelper structure).
   * Split into lockd (core, CLI, TUI, modules, helper, policy) and
