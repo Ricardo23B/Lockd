@@ -108,7 +108,7 @@ build:deb:
     - apt-get update -qq
     - apt-get install -y -qq --no-install-recommends build-essential
         debhelper dh-python pybuild-plugin-pyproject
-        python3-all python3-setuptools dpkg-dev lintian git
+        python3-all python3-setuptools python3-yaml dpkg-dev lintian git
     - rm -rf "$CI_PROJECT_DIR/.pip-cache"
   script:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
