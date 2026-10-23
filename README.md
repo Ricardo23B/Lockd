@@ -374,6 +374,9 @@ lockd --dry-run enable kernel_sysctl_hardening
 sudo bash modules/kernel_sysctl_hardening/enable.sh --dry-run
 ```
 
+`--dry-run` goes before or after the subcommand:
+`lockd enable kernel_sysctl_hardening --dry-run` does the same.
+
 ---
 
 ## Creating a new module
