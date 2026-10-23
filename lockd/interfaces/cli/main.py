@@ -386,6 +386,7 @@ Ejemplos:
   lockd disable enable_firewall --yes
   lockd simulate hardened_ssh_config
   lockd profile server --yes
+  lockd profile server --dry-run
   lockd level advanced
   lockd info kernel_sysctl_hardening
         """,
@@ -445,6 +446,13 @@ Ejemplos:
     # info
     inf = sub.add_parser("info", help="Información detallada de un módulo")
     inf.add_argument("module_id", metavar="MODULE_ID")
+
+    # --dry-run vale también después del subcomando (lockd profile server --dry-run).
+    # Con default SUPPRESS, si no aparece ahí queda el valor del parser principal:
+    # lockd --dry-run profile server sigue simulando.
+    for cmd_parser in sub.choices.values():
+        cmd_parser.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS,
+                                help="Simular cambios sin aplicarlos")
 
     return p
 

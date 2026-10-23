@@ -6,11 +6,13 @@
 
 🇪🇸 [Versión en español](README.es.md)
 
-**Linux hardening tool with GUI, TUI, CLI and built-in auditing.**
+**Harden Linux with a preview of every change and a way back from each one.**
 
-Lockd turns complex security configurations into simple switches, accessible
-from a graphical desktop, from the CLI, or on a remote server over SSH.
-Every change can be simulated first, and reversibility is a core design goal.
+Before anything touches your system, `--dry-run` shows exactly what each
+module would write, and every module ships a `disable` that reverts it.
+Lockd audits your system and turns complex security configurations into
+simple switches, accessible from a graphical desktop, from the CLI, or on a
+remote server over SSH.
 
 > **Note:** development and collaboration happen on
 > [GitLab](https://gitlab.com/Ricardo23B/Lockd). The GitHub repository is a
@@ -371,6 +373,9 @@ lockd --dry-run enable kernel_sysctl_hardening
 
 sudo bash modules/kernel_sysctl_hardening/enable.sh --dry-run
 ```
+
+`--dry-run` goes before or after the subcommand:
+`lockd enable kernel_sysctl_hardening --dry-run` does the same.
 
 ---
 
