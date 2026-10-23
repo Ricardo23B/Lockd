@@ -6,11 +6,12 @@
 
 🇬🇧 [English version](README.md)
 
-**Herramienta de hardening para Linux con GUI, TUI, CLI y auditoría integrada.**
+**Hardening de Linux con vista previa de cada cambio y vuelta atrás en cada uno.**
 
-Lockd convierte configuraciones de seguridad complejas en interruptores simples,
+Antes de que nada toque tu sistema, `--dry-run` muestra exactamente qué escribiría
+cada módulo, y todos incluyen un `disable` que los revierte. Lockd audita el sistema
+y convierte configuraciones de seguridad complejas en interruptores simples,
 accesibles desde un escritorio gráfico, desde la CLI o en un servidor remoto vía SSH.
-Todo cambio se puede simular antes, y la reversibilidad es un objetivo central del diseño.
 
 > **Nota:** el desarrollo y la colaboración ocurren en
 > [GitLab](https://gitlab.com/Ricardo23B/Lockd). El repositorio de GitHub
